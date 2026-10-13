@@ -1,0 +1,336 @@
+{
+  "project_name": "Segar Juice Bar & POS Terminal",
+  "theme": "light",
+  "locale": {
+    "country": "Indonesia",
+    "currency": "IDR",
+    "currency_symbol": "Rp",
+    "number_format": "id-ID",
+    "timezone": "Asia/Jakarta (WIB)"
+  },
+  "typography": {
+    "font_family_heading": "Outfit, sans-serif",
+    "font_family_body": "Plus Jakarta Sans, sans-serif",
+    "font_family_mono": "IBM Plex Mono, monospace",
+    "import_statements": [
+      "@import \"@fontsource-variable/outfit\";",
+      "@import \"@fontsource-variable/plus-jakarta-sans\";",
+      "@import \"@fontsource/ibm-plex-mono\";"
+    ],
+    "scale_px": {
+      "display": 56,
+      "h1": 44,
+      "h2": 32,
+      "h3": 24,
+      "body": 16,
+      "caption": 14
+    },
+    "rules": {
+      "h1_classes": "font-heading font-black tracking-tight text-3xl sm:text-4xl lg:text-5xl text-emerald-950",
+      "h2_classes": "font-heading font-bold tracking-tight text-2xl sm:text-3xl text-emerald-950",
+      "h3_classes": "font-heading font-semibold text-xl sm:text-2xl text-emerald-900",
+      "body_classes": "font-sans text-base leading-relaxed text-emerald-900/80",
+      "mono_classes": "font-mono text-sm tracking-wide"
+    }
+  },
+  "colors": {
+    "primary": "#059669",
+    "primary_dark": "#064E3B",
+    "accent_orange": "#F97316",
+    "accent_yellow": "#FBBF24",
+    "accent_dragonfruit": "#EC4899",
+    "surfaces": [
+      {
+        "name": "page",
+        "kind": "solid",
+        "bg": "#F8FAFC",
+        "on_bg": "#064E3B",
+        "on_bg_muted": "#475569",
+        "roles": {
+          "link": "#059669",
+          "error": "#DC2626",
+          "success": "#16A34A"
+        }
+      },
+      {
+        "name": "panel",
+        "kind": "solid",
+        "bg": "#FFFFFF",
+        "on_bg": "#0F172A",
+        "on_bg_muted": "#64748B",
+        "roles": {
+          "link": "#059669",
+          "error": "#DC2626",
+          "success": "#16A34A"
+        }
+      },
+      {
+        "name": "brand_banner",
+        "kind": "solid",
+        "bg": "#064E3B",
+        "on_bg": "#ECFDF5",
+        "on_bg_muted": "#A7F3D0",
+        "roles": {
+          "link": "#34D399",
+          "error": "#FCA5A5",
+          "success": "#86EFAC"
+        }
+      },
+      {
+        "name": "pos_header",
+        "kind": "solid",
+        "bg": "#042F2E",
+        "on_bg": "#F0FDF4",
+        "on_bg_muted": "#99F6E4",
+        "roles": {
+          "link": "#2DD4BF",
+          "error": "#F87171",
+          "success": "#4ADE80"
+        }
+      },
+      {
+        "name": "thermal_receipt",
+        "kind": "solid",
+        "bg": "#FFFFFF",
+        "on_bg": "#111827",
+        "on_bg_muted": "#4B5563",
+        "roles": {
+          "link": "#111827",
+          "error": "#991B1B",
+          "success": "#166534"
+        }
+      },
+      {
+        "name": "hero_glass",
+        "kind": "glass",
+        "contrast_against": "#064E3B",
+        "guarantee": "scrim: linear-gradient(135deg, rgba(6,78,59,0.92) 0%, rgba(4,47,46,0.96) 100%) backdrop-blur-xl",
+        "on_bg": "#F0FDF4",
+        "on_bg_muted": "#D1FAE5",
+        "roles": {
+          "link": "#6EE7B7",
+          "error": "#FCA5A5",
+          "success": "#86EFAC"
+        }
+      }
+    ],
+    "accent": "#059669",
+    "on_accent": "#FFFFFF"
+  },
+  "entry_surfaces": {
+    "/": "split hero — brand story + live CTA left with organic badge, curated cold-pressed juices preview showcase right",
+    "/pos": "command terminal — categories + product selection grid left, active cart + modifier drawer + payment pad right",
+    "/history": "analytics & batch receipts — date filter bar + metrics top, multi-select order ledger and 80mm batch print preview below"
+  },
+  "layouts_and_grids": {
+    "landing_page": {
+      "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+      "hero_layout": "grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center py-12 lg:py-20",
+      "menu_highlight_grid": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6",
+      "story_section": "grid grid-cols-1 lg:grid-cols-2 gap-12 items-center py-16",
+      "footer_layout": "bg-emerald-950 text-emerald-100 py-16 px-4 sm:px-6 lg:px-8 border-t border-emerald-900"
+    },
+    "pos_terminal": {
+      "shell": "h-screen flex flex-col bg-slate-100 overflow-hidden",
+      "header_height": "h-16 shrink-0 bg-emerald-950 text-white flex items-center justify-between px-6 border-b border-emerald-800",
+      "main_grid": "flex-1 grid grid-cols-12 gap-0 overflow-hidden",
+      "catalog_area": "col-span-12 lg:col-span-8 flex flex-col h-full bg-slate-50 border-r border-slate-200 overflow-hidden",
+      "category_tabs": "flex items-center gap-2 p-4 overflow-x-auto bg-white border-b border-slate-200 shrink-0",
+      "products_grid": "flex-1 overflow-y-auto p-4 sm:p-6 grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4",
+      "cart_sidebar": "col-span-12 lg:col-span-4 flex flex-col h-full bg-white border-l border-slate-200 shadow-lg overflow-hidden",
+      "cart_items_list": "flex-1 overflow-y-auto p-4 divide-y divide-slate-100",
+      "cart_footer": "p-4 bg-slate-50 border-t border-slate-200 shrink-0 space-y-3"
+    },
+    "sales_history": {
+      "container": "max-w-7xl mx-auto p-6 space-y-6",
+      "filter_bar": "bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center justify-between gap-4",
+      "stats_grid": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4",
+      "orders_table": "bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden"
+    }
+  },
+  "image_urls": {
+    "hero_banner": {
+      "url": "https://images.unsplash.com/photo-1621506289937-a8e4df240d0b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAxODF8MHwxfHNlYXJjaHwyfHxmcmVzaCUyMGNvbGQlMjBwcmVzc2VkJTIwanVpY2UlMjBib3R0bGV8ZW58MHx8fHwxNzkxNjU1MTg1fDA&ixlib=rb-4.1.0&q=85",
+      "category": "hero",
+      "description": "Artisan cold-pressed orange, citrus, and passion fruit with raw sliced fruit on clean surface"
+    },
+    "juice_bottles_trio": {
+      "url": "https://images.unsplash.com/photo-1650547001322-145ff2c0bed7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAxODF8MHwxfHNlYXJjaHw0fHxmcmVzaCUyMGNvbGQlMjBwcmVzc2VkJTIwanVpY2UlMjBib3R0bGV8ZW58MHx8fHwxNzkxNjU1MTg1fDA&ixlib=rb-4.1.0&q=85",
+      "category": "products",
+      "description": "Trio of vibrant cold-pressed juice bottles (Orange Sunshine, Green Detox, Ruby Beet)"
+    },
+    "juice_bottles_table": {
+      "url": "https://images.unsplash.com/photo-1603569283847-aa295f0d016a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAxODF8MHwxfHNlYXJjaHwxfHxmcmVzaCUyMGNvbGQlMjBwcmVzc2VkJTIwanVpY2UlMjBib3R0bGV8ZW58MHx8fHwxNzkxNjU1MTg1fDA&ixlib=rb-4.1.0&q=85",
+      "category": "story_and_about",
+      "description": "Cold pressed juices in glass bottles surrounded by fresh farm produce"
+    },
+    "dragonfruit_smoothie": {
+      "url": "https://images.unsplash.com/photo-1575159249868-df58bf5e09ec?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MTJ8MHwxfHNlYXJjaHwxfHxkcmFnb25mcnVpdCUyMG1hbmdvJTIwc21vb3RoaWUlMjBnbGFzc3xlbnwwfHx8fDE3OTE2NTUxODV8MA&ixlib=rb-4.1.0&q=85",
+      "category": "pos_item",
+      "description": "Vibrant pink dragonfruit smoothie in clear cup with eco-straw"
+    },
+    "mango_smoothie": {
+      "url": "https://images.unsplash.com/photo-1623065422902-30a2d299bbe4?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MTJ8MHwxfHNlYXJjaHwzfHxkcmFnb25mcnVpdCUyMG1hbmdvJTIwc21vb3RoaWUlMjBnbGFzc3xlbnwwfHx8fDE3OTE2NTUxODV8MA&ixlib=rb-4.1.0&q=85",
+      "category": "pos_item",
+      "description": "Rich golden Indonesian Harum Manis mango smoothie with fresh sliced fruit"
+    },
+    "tropical_blend_cups": {
+      "url": "https://images.unsplash.com/photo-1662130187270-a4d52c700eb6?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MTJ8MHwxfHNlYXJjaHwyfHxkcmFnb25mcnVpdCUyMG1hbmdvJTIwc21vb3RoaWUlMjBnbGFzc3xlbnwwfHx8fDE3OTE2NTUxODV8MA&ixlib=rb-4.1.0&q=85",
+      "category": "pos_item",
+      "description": "Duo of fresh specialty blends in sleek cups"
+    }
+  },
+  "components": {
+    "navigation_header": {
+      "file": "frontend/src/components/Header.tsx",
+      "description": "Fixed glassmorphism topbar with Segar Juice Bar mark, Indonesian location cue, Navigation links (Home, Menu Highlights, Story, POS Terminal, Sales History), and 'Buka Kasir / Open POS' CTA button"
+    },
+    "pos_product_card": {
+      "file": "frontend/src/components/pos/ProductCard.tsx",
+      "description": "Product card featuring clean image thumbnail, IDR formatted price (e.g., Rp 35.000), Indonesian tag (100% Alami, Cold-Pressed), and click-to-configure trigger"
+    },
+    "modifier_dialog": {
+      "file": "frontend/src/components/pos/ModifierDialog.tsx",
+      "description": "Modal dialog to select Size (Regular / Large +Rp 8.000), Ice Level (Normal / Less Ice / No Ice), Sugar Level (100% / 50% / No Sugar / Wild Honey), and Add-ons (Chia Seeds +Rp 5.000, Collagen Booster +Rp 7.000, Aloe Vera +Rp 4.000, Extra Ginger +Rp 3.000)"
+    },
+    "checkout_modal": {
+      "file": "frontend/src/components/pos/CheckoutModal.tsx",
+      "description": "Payment checkout sheet with IDR quick cash buttons (Rp 50.000, Rp 100.000, Exact), QRIS QR simulator (Indonesian standard QR payment with dynamic visual code), Debit/Credit Card, change calculator, and instant print receipt option"
+    },
+    "receipt_component": {
+      "file": "frontend/src/components/pos/Receipt80mm.tsx",
+      "description": "Authentic 80mm thermal receipt formatted layout (monospace font, dotted lines, Jakarta store address, order ID, items list, payment details, QR code footer, and @media print CSS for direct thermal printers)"
+    },
+    "batch_receipt_modal": {
+      "file": "frontend/src/components/history/BatchReceiptModal.tsx",
+      "description": "Multi-order 80mm continuous thermal receipt layout with page break separation per receipt for batch printing all selected date orders"
+    }
+  },
+  "seed_menu_data": [
+    {
+      "id": "segar-01",
+      "name": "Bali Green Glow",
+      "category": "Cold-Pressed Juice",
+      "base_price": 38000,
+      "description": "Bayam organik, apel malang, mentimun, seledri stik, nanas subang, perasan lemon",
+      "image": "https://images.unsplash.com/photo-1650547001322-145ff2c0bed7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAxODF8MHwxfHNlYXJjaHw0fHxmcmVzaCUyMGNvbGQlMjBwcmVzc2VkJTIwanVpY2UlMjBib3R0bGV8ZW58MHx8fHwxNzkxNjU1MTg1fDA&ixlib=rb-4.1.0&q=85",
+      "tag": "Best Seller",
+      "calories": "120 kkal"
+    },
+    {
+      "id": "segar-02",
+      "name": "Naga Tropical Bliss",
+      "category": "Smoothie Bowl & Drinks",
+      "base_price": 42000,
+      "description": "Buah naga merah Banyuwangi, mangga harum manis, pisang cavendish, susu oat",
+      "image": "https://images.unsplash.com/photo-1575159249868-df58bf5e09ec?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MTJ8MHwxfHNlYXJjaHwxfHxkcmFnb25mcnVpdCUyMG1hbmdvJTIwc21vb3RoaWUlMjBnbGFzc3xlbnwwfHx8fDE3OTE2NTUxODV8MA&ixlib=rb-4.1.0&q=85",
+      "tag": "Signature",
+      "calories": "210 kkal"
+    },
+    {
+      "id": "segar-03",
+      "name": "Mangga Harum Booster",
+      "category": "Cold-Pressed Juice",
+      "base_price": 36000,
+      "description": "Mangga harum manis probolinggo murni 100%, markisa segar, sari jeruk nipis",
+      "image": "https://images.unsplash.com/photo-1623065422902-30a2d299bbe4?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MTJ8MHwxfHNlYXJjaHwzfHxkcmFnb25mcnVpdCUyMG1hbmdvJTIwc21vb3RoaWUlMjBnbGFzc3xlbnwwfHx8fDE3OTE2NTUxODV8MA&ixlib=rb-4.1.0&q=85",
+      "tag": "Favorit",
+      "calories": "165 kkal"
+    },
+    {
+      "id": "segar-04",
+      "name": "Citrus Sunshine Detox",
+      "category": "Cold-Pressed Juice",
+      "base_price": 35000,
+      "description": "Jeruk pontianak manis, wortel berastagi, jahe merah organik, kunyit",
+      "image": "https://images.unsplash.com/photo-1621506289937-a8e4df240d0b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAxODF8MHwxfHNlYXJjaHwyfHxmcmVzaCUyMGNvbGQlMjBwcmVzc2VkJTIwanVpY2UlMjBib3R0bGV8ZW58MHx8fHwxNzkxNjU1MTg1fDA&ixlib=rb-4.1.0&q=85",
+      "tag": "Immunity",
+      "calories": "140 kkal"
+    },
+    {
+      "id": "segar-05",
+      "name": "Ruby Beet Energizer",
+      "category": "Cold-Pressed Juice",
+      "base_price": 39000,
+      "description": "Bit merah, apel fuji, semangka tanpa biji, air kelapa muda wulung",
+      "image": "https://images.unsplash.com/photo-1603569283847-aa295f0d016a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAxODF8MHwxfHNlYXJjaHwxfHxmcmVzaCUyMGNvbGQlMjBwcmVzc2VkJTIwanVpY2UlMjBib3R0bGV8ZW58MHx8fHwxNzkxNjU1MTg1fDA&ixlib=rb-4.1.0&q=85",
+      "tag": "Pre-Workout",
+      "calories": "115 kkal"
+    },
+    {
+      "id": "segar-06",
+      "name": "Kelapa Muda Jamu Elixir",
+      "category": "Artisan Tonics",
+      "base_price": 32000,
+      "description": "Air kelapa murni, kunyit asam segar, madu hutan sumbawa, perasan jeruk nipis",
+      "image": "https://images.unsplash.com/photo-1662130187270-a4d52c700eb6?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MTJ8MHwxfHNlYXJjaHwyfHxkcmFnb25mcnVpdCUyMG1hbmdvJTIwc21vb3RoaWUlMjBnbGFzc3xlbnwwfHx8fDE3OTE2NTUxODV8MA&ixlib=rb-4.1.0&q=85",
+      "tag": "Tradisional Modern",
+      "calories": "95 kkal"
+    }
+  ],
+  "motion_and_interactions": {
+    "library": "motion (from motion/react)",
+    "rules": [
+      "Smooth entrance animation on menu items and POS grid items with staggerChildren: 0.05",
+      "Tactile hover micro-interactions (scale: 1.02, translateY: -2px) on product cards and action buttons",
+      "Cart drawer badge bounce whenever a new drink item is added",
+      "Payment method tabs smooth layout transition",
+      "Active state on buttons must provide immediate visual feedback (active:scale-95)",
+      "Strict compliance with prefers-reduced-motion using conditional CSS / framer-motion variants"
+    ]
+  },
+  "accessibility": {
+    "wcag_target": "AA (4.5:1 text contrast minimum)",
+    "rules": [
+      "All buttons, inputs, cart modifiers, and date pickers must have descriptive aria-labels",
+      "Thermal receipt preview maintains strict monochrome high-contrast ratio (21:1 black on white)",
+      "Screen readers announced dynamic totals whenever cart modifiers or quantities change",
+      "Keyboard tab navigation navigable through POS terminal without trap"
+    ]
+  },
+  "testing_attributes": {
+    "convention": "kebab-case data-testid on every interactive and key data display element",
+    "mandatory_ids": [
+      "data-testid=\"nav-link-home\"",
+      "data-testid=\"nav-link-pos\"",
+      "data-testid=\"nav-link-history\"",
+      "data-testid=\"pos-search-input\"",
+      "data-testid=\"category-filter-all\"",
+      "data-testid=\"product-card-segar-01\"",
+      "data-testid=\"product-add-button-segar-01\"",
+      "data-testid=\"modifier-size-regular\"",
+      "data-testid=\"modifier-size-large\"",
+      "data-testid=\"modifier-addon-chia\"",
+      "data-testid=\"modifier-confirm-button\"",
+      "data-testid=\"cart-item-row\"",
+      "data-testid=\"cart-item-increment\"",
+      "data-testid=\"cart-item-decrement\"",
+      "data-testid=\"cart-item-remove\"",
+      "data-testid=\"cart-subtotal-amount\"",
+      "data-testid=\"cart-checkout-button\"",
+      "data-testid=\"payment-tab-cash\"",
+      "data-testid=\"payment-tab-qris\"",
+      "data-testid=\"payment-tab-card\"",
+      "data-testid=\"cash-tendered-input\"",
+      "data-testid=\"quick-cash-100k\"",
+      "data-testid=\"payment-change-display\"",
+      "data-testid=\"complete-payment-button\"",
+      "data-testid=\"receipt-modal\"",
+      "data-testid=\"print-receipt-single-button\"",
+      "data-testid=\"history-date-start-input\"",
+      "data-testid=\"history-date-end-input\"",
+      "data-testid=\"history-select-all-checkbox\"",
+      "data-testid=\"history-order-checkbox\"",
+      "data-testid=\"history-batch-print-button\"",
+      "data-testid=\"history-total-revenue\""
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Template is farm-ts (FastAPI backend + Vite React 19 frontend). Ensure all backend API routes in backend/server.py or backend/routers/ are properly prefixed with /api.",
+    "Implement full Indonesian rupiah formatting (e.g. 'Rp 35.000') with Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).",
+    "Provide three main views: 1) Marketing Landing Page (/) showcasing the artisan brand story, juice benefits, tropical fresh aesthetic, and quick jump to POS; 2) POS Terminal (/pos) optimized for cashier speed with product grid, customizable modifiers (Size Regular/Large, Ice, Sweetness, Superfood Add-ons), cart management, and payment methods (Cash with change calculation, QRIS with QR code display, Card); 3) Sales History (/history) with date-range filtering, multi-order selection, summary analytics, single receipt modal, and 80mm continuous thermal batch printing.",
+    "Thermal Receipt (@media print): Ensure 80mm receipt styling renders cleanly at width ~80mm (300px on screen), uses monospace font, and correctly supports window.print() for single and batch prints.",
+    "Pre-seed realistic Indonesian juice bar orders for today and previous days in the backend/seed.py so the history tab is immediately populated and testable.",
+    "Always degrade gracefully if the static build runs without active backend responses by providing rich local state fallback."
+  ]
+}

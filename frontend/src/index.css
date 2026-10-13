@@ -1,0 +1,193 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource/poppins/600.css";
+@import "@fontsource/poppins/700.css";
+@import "@fontsource/poppins/800-italic.css";
+@import "@fontsource/poppins/900-italic.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+@import "@fontsource-variable/plus-jakarta-sans";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: 'Poppins', sans-serif;
+    --font-sans: 'Plus Jakarta Sans Variable', sans-serif;
+    --font-mono: 'IBM Plex Mono', monospace;
+    --color-teal-brand: #1d6b66;
+    --color-teal-deep: #0f3f3b;
+    --color-teal-pill: #4f9893;
+    --color-mint: #e7f2f0;
+    --color-zest: #ffe81a;
+    --animate-float-slow: float-slow 6s ease-in-out infinite;
+    --animate-pop: pop 0.35s cubic-bezier(.2,1.4,.4,1);
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@keyframes float-slow {
+    0%, 100% { transform: translateY(0) rotate(-2deg); }
+    50% { transform: translateY(-10px) rotate(2deg); }
+}
+@keyframes pop {
+    0% { transform: scale(0.6); }
+    100% { transform: scale(1); }
+}
+
+:root {
+    --background: #f4f8f7;
+    --foreground: #0f3f3b;
+    --card: #ffffff;
+    --card-foreground: #0f3f3b;
+    --popover: #ffffff;
+    --popover-foreground: #0f3f3b;
+    --primary: #1d6b66;
+    --primary-foreground: #ffffff;
+    --secondary: #e7f2f0;
+    --secondary-foreground: #0f3f3b;
+    --muted: #edf3f2;
+    --muted-foreground: #4d6b68;
+    --accent: #e7f2f0;
+    --accent-foreground: #0f3f3b;
+    --destructive: #d23b3b;
+    --border: #d5e4e1;
+    --input: #c9dbd8;
+    --ring: #1d6b66;
+    --chart-1: #1d6b66;
+    --chart-2: #ffe81a;
+    --chart-3: #e2457a;
+    --chart-4: #f2cf3e;
+    --chart-5: #93c13e;
+    --radius: 0.75rem;
+    --sidebar: #f4f8f7;
+    --sidebar-foreground: #0f3f3b;
+    --sidebar-primary: #1d6b66;
+    --sidebar-primary-foreground: #ffffff;
+    --sidebar-accent: #e7f2f0;
+    --sidebar-accent-foreground: #0f3f3b;
+    --sidebar-border: #d5e4e1;
+    --sidebar-ring: #1d6b66;
+}
+
+.dark {
+    --background: #0b2826;
+    --foreground: #f0faf8;
+    --card: #12342f;
+    --card-foreground: #f0faf8;
+    --popover: #12342f;
+    --popover-foreground: #f0faf8;
+    --primary: #ffe81a;
+    --primary-foreground: #0f3f3b;
+    --secondary: #1a4540;
+    --secondary-foreground: #f0faf8;
+    --muted: #1a4540;
+    --muted-foreground: #a7c9c4;
+    --accent: #1a4540;
+    --accent-foreground: #f0faf8;
+    --destructive: #f87171;
+    --border: rgb(255 255 255 / 12%);
+    --input: rgb(255 255 255 / 16%);
+    --ring: #ffe81a;
+    --chart-1: #4f9893;
+    --chart-2: #ffe81a;
+    --chart-3: #e2457a;
+    --chart-4: #f2cf3e;
+    --chart-5: #93c13e;
+    --sidebar: #12342f;
+    --sidebar-foreground: #f0faf8;
+    --sidebar-primary: #ffe81a;
+    --sidebar-primary-foreground: #0f3f3b;
+    --sidebar-accent: #1a4540;
+    --sidebar-accent-foreground: #f0faf8;
+    --sidebar-border: rgb(255 255 255 / 12%);
+    --sidebar-ring: #ffe81a;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+  html {
+    @apply font-sans;
+    }
+}
+
+/* ---------- 80mm thermal receipt ---------- */
+.receipt {
+    width: 72mm;
+    padding: 4mm 3mm;
+    background: #fff;
+    color: #111;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11.5px;
+    line-height: 1.45;
+}
+.receipt-brand { font-family: 'Poppins', sans-serif; font-weight: 900; font-style: italic; font-size: 20px; letter-spacing: -0.02em; }
+.receipt-logo { display: block; width: 18mm; height: 18mm; margin: 0 auto 2px; border-radius: 9999px; }
+.receipt-rule { border-top: 1px dashed #111; margin: 6px 0; }
+.receipt-row { display: flex; justify-content: space-between; gap: 8px; }
+.receipt-row > span:last-child { white-space: nowrap; text-align: right; }
+.receipt-item { font-weight: 600; }
+.receipt-sub { padding-left: 10px; color: #333; font-size: 10.5px; }
+.receipt-addr { font-size: 10px; line-height: 1.35; }
+.receipt-line + .receipt-line { margin-top: 4px; }
+.receipt-total { font-weight: 600; font-size: 13.5px; }
+
+.print-area { display: none; }
+
+@media print {
+    @page thermal { size: 80mm auto; margin: 0; }
+    @page a4 { size: A4; margin: 10mm; }
+    html, body { background: #fff !important; }
+    body > *:not(.print-area) { display: none !important; }
+    .print-area { display: block !important; }
+    .print-area.print-thermal { page: thermal; }
+    .print-area.print-thermal .receipt { break-after: page; page-break-after: always; }
+    .print-area.print-thermal .receipt:last-child { break-after: auto; page-break-after: auto; }
+    .print-area.print-a4 { page: a4; display: flex !important; flex-wrap: wrap; align-items: flex-start; gap: 4mm; }
+    .print-area.print-a4 .receipt { width: 60mm; padding: 3mm; border: 1px dashed #888; break-inside: avoid; page-break-inside: avoid; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .animate-float-slow { animation: none; }
+}

@@ -1,0 +1,11 @@
+# Minimal dependencies to run NuBuah on your own computer.
+fastapi==0.141.1
+uvicorn==0.52.1
+motor==3.7.1
+pymongo==4.17.0
+pydantic>=2.6.4
+python-dotenv>=1.0.1
+tzdata>=2024.2
+pyjwt>=2.10.1
+passlib>=1.7.4
+bcrypt==4.0.1
