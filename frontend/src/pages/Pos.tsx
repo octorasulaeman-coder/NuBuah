@@ -1,24 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { CloudOff, Minus, Plus, Printer, Search, Settings2, ShoppingBag, Trash2, X } from "lucide-react";
+import { Bell } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import StaffBar from "@/components/StaffBar";
 import { useActiveStore } from "@/lib/auth";
-import { PrintFormatToggle, ReceiptActions, usePrintFormat } from "@/lib/receiptTools";
-import Receipt from "@/components/Receipt";
+import ReceiptSuccessDialog from "@/components/ReceiptSuccessDialog";
 import Swatch from "@/components/Swatch";
 import MenuPhoto from "@/components/MenuPhoto";
 import ItemDialog from "@/components/pos/ItemDialog";
 import CheckoutDialog from "@/components/pos/CheckoutDialog";
+import CustomerOrdersDialog from "@/components/pos/CustomerOrdersDialog";
 import MenuEditor from "@/components/pos/MenuEditor";
 import { type CategoryId, type Product } from "@/data/menu";
 import { kShort, plain, rupiah } from "@/lib/format";
-import { receiptsNode, usePrint } from "@/lib/print";
+// receipt printing for completed sales lives in ReceiptSuccessDialog
 import { useMenu } from "@/lib/useMenu";
 import { onQueueChange, queuedOrders, syncOfflineQueue } from "@/lib/offlineQueue";
+import { apiGet } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
 import type { Order, OrderLineIn } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -39,7 +42,9 @@ export default function Pos() {
   const [configuring, setConfiguring] = useState<Product | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [receipt, setReceipt] = useState<Order | null>(null);
+  const [paidOnline, setPaidOnline] = useState<Order | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
+  const [incomingOpen, setIncomingOpen] = useState(false);
 
   // Offline queue: badge count + background sync (on load, on 'online', every 30s).
   const [queueCount, setQueueCount] = useState(() => queuedOrders().length);
@@ -59,10 +64,17 @@ export default function Pos() {
       clearInterval(timer);
     };
   }, []);
-  const { print, printArea } = usePrint();
   const active = useActiveStore();
   const { storeId, isOwner } = active;
-  const [printFormat, setPrintFormat] = usePrintFormat();
+
+  // incoming customer (phone) orders awaiting payment at the counter
+  const pendingQ = useQuery({
+    queryKey: ["orders", "pending", storeId],
+    queryFn: () => apiGet<Order[]>(`/orders/pending${storeId ? `?store_id=${storeId}` : ""}`),
+    enabled: !!storeId,
+    refetchInterval: 30_000,
+  });
+  const pendingCount = pendingQ.data?.length ?? 0;
   const { products: menu, allProducts, categories, customCategories, customGroups, groups, allGroups, optionOverridden } = useMenu(storeId);
 
   const [sort, setSort] = useState<SortMode>(() => (localStorage.getItem(SORT_KEY) as SortMode) || "default");
@@ -105,6 +117,20 @@ export default function Pos() {
         active={active}
         extra={
           <>
+            <button
+              onClick={() => setIncomingOpen(true)}
+              className="relative inline-flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-white/30"
+              title="Pesanan online yang belum dibayar"
+              data-testid="incoming-orders-button"
+            >
+              <Bell size={14} />
+              <span className="hidden xl:inline">Pesanan online</span>
+              {pendingCount > 0 && (
+                <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white" data-testid="incoming-orders-badge">
+                  {pendingCount}
+                </span>
+              )}
+            </button>
             {queueCount > 0 && (
               <span
                 className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1 text-xs font-semibold text-white"
@@ -349,22 +375,17 @@ export default function Pos() {
         }}
       />
 
-      <Dialog open={!!receipt} onOpenChange={(o) => !o && setReceipt(null)}>
-        <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-sm" data-testid="receipt-modal">
-          <DialogHeader>
-            <DialogTitle className="font-heading text-lg font-extrabold italic text-teal-deep">Pembayaran berhasil</DialogTitle>
-            <DialogDescription>Struk {receipt?.order_no}</DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-center rounded-xl bg-muted p-3">{receipt && <Receipt order={receipt} />}</div>
-          <PrintFormatToggle format={printFormat} onChange={setPrintFormat} />
-          {receipt && <ReceiptActions order={receipt} onPrint={() => print(receiptsNode([receipt]), printFormat)} />}
-          <Button variant="outline" className="rounded-full" onClick={() => setReceipt(null)} data-testid="new-order-button">
-            Pesanan baru
-          </Button>
-        </DialogContent>
-      </Dialog>
+      <ReceiptSuccessDialog order={receipt} onClose={() => setReceipt(null)} />
+      <CustomerOrdersDialog
+        open={incomingOpen}
+        onClose={() => setIncomingOpen(false)}
+        onPaid={(order) => {
+          setPaidOnline(order);
+          setIncomingOpen(false);
+        }}
+      />
+      <ReceiptSuccessDialog order={paidOnline} onClose={() => setPaidOnline(null)} />
       <MenuEditor open={editorOpen} onOpenChange={setEditorOpen} products={allProducts} categories={categories} customCategories={customCategories} customGroups={customGroups} groups={allGroups} optionOverridden={optionOverridden} storeId={storeId} isOwner={isOwner} />
-      {printArea}
     </div>
   );
 }

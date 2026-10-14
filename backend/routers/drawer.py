@@ -43,7 +43,7 @@ async def drawer_summary(
     cash_out = sum(e.amount for e in events if e.kind == "cash_out")
     expense = sum(e.amount for e in events if e.kind == "expense")
     cash_sales = 0
-    async for o in db.orders.find({"store_id": sid, "business_date": d, "payment_method": "cash", "voided": {"$ne": True}}, {"total": 1}):
+    async for o in db.orders.find({"store_id": sid, "business_date": d, "payment_method": "cash", "voided": {"$ne": True}, "payment_status": {"$ne": "pending"}}, {"total": 1}):
         cash_sales += o.get("total", 0)
     closing = next((e for e in events if e.kind == "close"), None)
     return DrawerSummary(date=d, store_id=sid, opening=opening, cash_sales=cash_sales, cash_out=cash_out, expense=expense, expected_cash=opening + cash_sales - cash_out - expense, closing=closing, events=events)

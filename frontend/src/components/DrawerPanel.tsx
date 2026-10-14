@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { apiGet, apiPost } from "@/lib/api";
 import { useActiveStore } from "@/lib/auth";
 import { plain, rupiah } from "@/lib/format";
-import type { DrawerEventIn, DrawerSummary } from "@/lib/types";
+import type { DrawerEvent, DrawerEventIn, DrawerSummary } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -57,8 +57,8 @@ export default function DrawerPanel({ storeId = null, onClosed }: { storeId?: st
   });
 
   const closeMut = useMutation({
-    mutationFn: (body: { counted: number; store_id: string | null }) => apiPost("/drawer/close", body),
-    onSuccess: (ev) => {
+    mutationFn: (body: { counted: number; store_id: string | null }) => apiPost<DrawerEvent>("/drawer/close", body),
+    onSuccess: (ev: DrawerEvent) => {
       toast.success(ev.variance === 0 ? "Kasir ditutup — pas!" : `Kasir ditutup — selisih ${rupiah(ev.variance ?? 0)}`);
       setCounted("");
       invalidate();

@@ -41,6 +41,8 @@ export interface Order {
   id: string;
   client_order_id?: string | null;
   order_no: string;
+  channel?: string; // "pos" | "customer"
+  payment_status?: string; // "paid" | "pending" (unpaid customer orders)
   business_date: string;
   store_id: string;
   store_name: string;
@@ -137,6 +139,25 @@ export interface DrawerSummary {
   expected_cash: number;
   closing: DrawerEvent | null;
   events: DrawerEvent[];
+}
+
+// --- customer side (Option B: order on phone, pay at the counter) ---
+export interface PublicStoreInfo {
+  id: string;
+  name: string;
+  code: string;
+  address_lines: string[];
+  phone: string;
+}
+
+export interface PublicOrderStatus {
+  id: string;
+  order_no: string;
+  store_name: string;
+  payment_status: string; // "pending" = bayar di kasir, "paid"
+  total: number;
+  lines: OrderLine[];
+  created_at: string;
 }
 
 export interface PublicStore {

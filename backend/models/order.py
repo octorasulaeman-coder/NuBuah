@@ -27,6 +27,43 @@ class OrderLine(OrderLineIn):
     line_total: int
 
 
+class PublicOrderIn(BaseModel):
+    """Untrusted customer-side order (order on phone, pay at the counter).
+    No discounts, no payment fields — the cashier collects payment at pickup."""
+    store_code: str = Field(min_length=1, max_length=5)
+    lines: list[OrderLineIn] = Field(min_length=1, max_length=30)
+    customer_name: str = Field(min_length=2, max_length=60)
+    customer_phone: str = Field(min_length=9, max_length=16, pattern=r"^\+?\d+$")
+    client_order_id: Optional[str] = Field(default=None, max_length=64)
+
+
+class CancelIn(BaseModel):
+    """Cashier/owner cancels a pending customer order (no-show, duplicate, customer request)."""
+    reason: str = Field(min_length=2, max_length=120)
+
+
+class OrderPayIn(BaseModel):
+    """Cashier collects payment for a pending customer order at pickup.
+    Discounts use the same cap rule as checkout: above the store cap needs the owner PIN."""
+    payment_method: PaymentMethod
+    cash_tendered: Optional[int] = Field(default=None, ge=0)
+    discount_type: Optional[Literal["percent", "fixed"]] = None
+    discount_value: int = Field(default=0, ge=0, le=100_000_000)
+    discount_note: Optional[str] = Field(default=None, max_length=60)
+    approval_pin: Optional[str] = Field(default=None, min_length=4, max_length=6, pattern=r"^\d+$")
+
+
+class PublicOrderStatus(BaseModel):
+    """Customer-facing view: no cashier names, no internals beyond its own id."""
+    id: str
+    order_no: str
+    store_name: str
+    payment_status: str  # "pending" = bayar di kasir, "paid"
+    total: int
+    lines: list[OrderLine]
+    created_at: datetime
+
+
 class OrderCreate(BaseModel):
     lines: list[OrderLineIn] = Field(min_length=1)
     payment_method: PaymentMethod
@@ -62,6 +99,8 @@ class Order(BaseModel):
     discount_note: Optional[str] = None
     total: int  # what the customer pays (subtotal minus discount)
     payment_method: PaymentMethod
+    payment_status: str = "paid"  # customer-channel orders start "pending" until paid at pickup
+    channel: str = "pos"  # "pos" | "customer"
     cash_tendered: Optional[int] = None
     change: Optional[int] = None
     customer_name: Optional[str] = None

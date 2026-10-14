@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Printer, Send } from "lucide-react";
+import { ImageDown, Printer, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { receiptText, toWa } from "@/lib/receiptText";
+import { downloadReceiptImage } from "@/lib/receiptImage";
 import type { Order } from "@/lib/types";
 
 export { receiptText };
@@ -61,6 +62,9 @@ export function ReceiptActions({ order, onPrint }: { order: Order; onPrint: () =
     <div className="space-y-3">
       <Button className="w-full rounded-full bg-teal-brand hover:bg-teal-deep" onClick={onPrint} data-testid="print-receipt-single-button">
         <Printer /> Cetak / simpan PDF
+      </Button>
+      <Button variant="outline" className="w-full rounded-full" onClick={() => downloadReceiptImage(order).catch(() => {})} data-testid="receipt-download-image-button">
+        <ImageDown /> Unduh struk (gambar)
       </Button>
       <div className="flex gap-2">
         <Input

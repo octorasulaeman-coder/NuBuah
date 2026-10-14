@@ -382,7 +382,11 @@ export default function History() {
                     {o.lines.map((l) => `${l.qty}x ${l.code ?? l.name}`).join(", ")}
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary">{METHOD_LABEL[o.payment_method]}</Badge>
+                    {o.payment_status === "pending" ? (
+                      <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-100" data-testid={`pending-badge-${o.order_no}`}>Belum bayar</Badge>
+                    ) : (
+                      <Badge variant="secondary">{METHOD_LABEL[o.payment_method]}</Badge>
+                    )}
                   </TableCell>
                   <TableCell className={cn("text-right font-mono font-semibold text-teal-deep", o.voided && "text-muted-foreground line-through")}>{rupiah(o.total)}</TableCell>
                   <TableCell className="whitespace-nowrap">
@@ -437,6 +441,11 @@ export default function History() {
             <DialogTitle className="font-heading text-lg font-extrabold italic text-teal-deep">Struk {single?.order_no}</DialogTitle>
             <DialogDescription>{single && fmtLongDate(single.business_date)}</DialogDescription>
           </DialogHeader>
+          {single?.payment_status === "pending" && (
+            <p className="mb-2 rounded-lg bg-amber-100 px-3 py-2 text-center text-xs font-semibold text-amber-800" data-testid="receipt-pending-note">
+              BELUM BAYAR — pesanan online menunggu pembayaran di kasir (tidak masuk laporan penjualan)
+            </p>
+          )}
           <div className="flex justify-center rounded-xl bg-muted p-3">{single && <Receipt order={single} />}</div>
           <PrintFormatToggle format={printFormat} onChange={setPrintFormat} />
           {single && <ReceiptActions order={single} onPrint={() => print(receiptsNode([single]), printFormat)} />}

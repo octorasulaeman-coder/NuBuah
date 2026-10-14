@@ -59,8 +59,10 @@ def _override_price_sized(base_r: int, base_l: Optional[int], size: Optional[str
 _XN_RE = re.compile(r"^(?P<label>.+?) x(?P<n>[23])$")
 
 
-async def verify_line(store_id: str, line) -> int:
-    """Recompute the expected unit price for one order line; raise 4xx on any mismatch."""
+async def verify_line(store_id: str, line, reject_hidden: bool = False) -> int:
+    """Recompute the expected unit price for one order line; raise 4xx on any mismatch.
+    reject_hidden: the customer channel must not order menu-hidden items (the POS can't
+    select them either, but its requests come from an authenticated session)."""
     pid = line.product_id
     product = await _resolve_product(pid)
     if not product:
@@ -77,6 +79,8 @@ async def verify_line(store_id: str, line) -> int:
             groups.append(g["id"])
     if menu_ov.get(pid, {}).get("sold_out"):
         raise HTTPException(status_code=409, detail=f"\"{line.name}\" sedang habis")
+    if reject_hidden and menu_ov.get(pid, {}).get("hidden"):
+        raise HTTPException(status_code=409, detail=f"\"{line.name}\" tidak tersedia")
 
     # --- base price ---
     if pricing == "potong":

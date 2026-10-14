@@ -43,6 +43,7 @@ from routers.reports import router as reports_router  # noqa: E402
 from routers.backup import router as backup_router  # noqa: E402
 from routers.auth import router as auth_router  # noqa: E402
 from routers.drawer import router as drawer_router  # noqa: E402
+from routers.public import router as public_router  # noqa: E402
 
 api_router.include_router(auth_router)
 api_router.include_router(orders_router)
@@ -50,6 +51,7 @@ api_router.include_router(menu_router)
 api_router.include_router(reports_router)
 api_router.include_router(backup_router)
 api_router.include_router(drawer_router)
+api_router.include_router(public_router)
 
 # Include the router in the main app
 app.include_router(api_router)

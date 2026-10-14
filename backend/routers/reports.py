@@ -30,7 +30,8 @@ async def build_closing(p: Principal, start: Optional[str], end: Optional[str], 
     start_d, end_d = date_range(start, end)
     sid = await resolve_store(p, store_id, allow_all=True)
     all_docs = await find_orders(sid, start_d, end_d, sort=1)
-    docs = [d for d in all_docs if not d.get("voided")]  # voided orders never count toward totals
+    # voided orders and unpaid customer (phone) orders never count toward totals
+    docs = [d for d in all_docs if not d.get("voided") and d.get("payment_status") != "pending"]
     voided = [d for d in all_docs if d.get("voided")]
 
     methods = {m: {"count": 0, "total": 0} for m in ("cash", "qris", "card")}
@@ -122,7 +123,7 @@ async def export_csv(
         if created.tzinfo is None:
             created = created.replace(tzinfo=timezone.utc)
         jam = created.astimezone(tz).strftime("%H:%M")
-        status = "VOID" if d.get("voided") else "SELESAI"
+        status = "VOID" if d.get("voided") else ("BELUM BAYAR" if d.get("payment_status") == "pending" else "SELESAI")
         for i, ln in enumerate(d["lines"]):
             opts = "; ".join(f"{o['label']}" + (f" ({o['price']:+d})" if o.get("price") else "") for o in ln.get("options", []))
             row = [
@@ -133,7 +134,7 @@ async def export_csv(
                 d.get("discount_amount", 0) if i == 0 else "",
                 _discount_label(d) if i == 0 else "",
                 d["total"] if i == 0 else "",  # order total only once per order so a SUM() is not double counted
-                (0 if d.get("voided") else d["total"]) if i == 0 else "",  # void orders count as 0: sum this column for real revenue
+                (0 if d.get("voided") or d.get("payment_status") == "pending" else d["total"]) if i == 0 else "",  # void/unpaid count as 0: sum this column for real revenue
             ]
             w.writerow([_safe(c) for c in row])
 

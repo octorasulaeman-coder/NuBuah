@@ -11,7 +11,7 @@ from lib.audit import audit
 from lib.dates import today_iso
 from lib.db import db
 from lib.pricing import verify_line
-from models.order import Order, OrderCreate, OrderLine, OrderList, OrdersSummary, TodayInfo, VoidIn
+from models.order import CancelIn, Order, OrderCreate, OrderLine, OrderList, OrderPayIn, OrdersSummary, TodayInfo, VoidIn
 
 router = APIRouter()
 
@@ -163,6 +163,99 @@ async def create_order(payload: OrderCreate, p: Principal = Depends(get_principa
     return order
 
 
+@router.get("/orders/pending", response_model=list[Order])
+async def list_pending_customer_orders(store_id: Optional[str] = Query(None), p: Principal = Depends(get_principal)):
+    """Customer-channel orders waiting for payment at the counter (today, this store)."""
+    sid = await resolve_store(p, store_id)
+    d = today_iso(STORE_TZ)
+    docs = await db.orders.find(
+        {"store_id": sid, "business_date": d, "channel": "customer", "payment_status": "pending", "voided": {"$ne": True}},
+        {"_id": 0},
+    ).sort("created_at", 1).to_list(200)
+    return [_to_order(d) for d in docs]
+
+
+@router.post("/orders/{id}/pay", response_model=Order)
+async def pay_pending_order(id: str, payload: OrderPayIn, p: Principal = Depends(get_principal)):
+    """Cashier collects payment for a pending customer order at pickup."""
+    doc = await db.orders.find_one({"id": id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Order not found")
+    await resolve_store(p, doc.get("store_id"))  # cashier must belong to the order's store
+    if doc.get("channel") != "customer" or doc.get("payment_status") != "pending":
+        raise HTTPException(status_code=409, detail="Pesanan ini sudah dibayar")
+    subtotal = doc["total"]  # customer orders are created undiscounted, so total == subtotal
+    discount = 0
+    if payload.discount_type and payload.discount_value:
+        if payload.discount_type == "percent":
+            if payload.discount_value > 100:
+                raise HTTPException(status_code=400, detail="Diskon persen maksimal 100%")
+            discount = (subtotal * payload.discount_value + 50) // 100
+        else:
+            if payload.discount_value > subtotal:
+                raise HTTPException(status_code=400, detail="Diskon lebih besar dari total belanja")
+            discount = payload.discount_value
+    total = subtotal - discount
+    if discount > 0:
+        cap = discount_cap_pct()
+        above_cap = subtotal == 0 or discount * 100 > cap * subtotal
+        if above_cap and not p.is_owner:
+            store = await db.stores.find_one({"id": doc.get("store_id")}, {"_id": 0, "approval_pin_hash": 1})
+            approved = bool(payload.approval_pin and store and store.get("approval_pin_hash") and verify_secret(payload.approval_pin, store["approval_pin_hash"]))
+            if not approved:
+                raise HTTPException(status_code=403, detail=f"Diskon di atas {cap}% butuh PIN owner")
+        await audit("order.discount", p, store_id=doc.get("store_id"), detail={
+            "order_id": id, "order_no": doc.get("order_no"), "subtotal": subtotal, "discount": discount,
+            "type": payload.discount_type, "value": payload.discount_value, "note": payload.discount_note, "above_cap": above_cap,
+        })
+    cash_tendered: Optional[int] = None
+    change: Optional[int] = None
+    if payload.payment_method == "cash":
+        cash_tendered = payload.cash_tendered if payload.cash_tendered is not None else total
+        if cash_tendered < total:
+            raise HTTPException(status_code=400, detail="Uang tunai kurang dari total")
+        change = cash_tendered - total
+    changes = {
+        "subtotal": subtotal,
+        "discount_type": payload.discount_type if discount > 0 else None,
+        "discount_value": payload.discount_value if discount > 0 else 0,
+        "discount_note": payload.discount_note.strip() if discount > 0 and payload.discount_note else None,
+        "discount_amount": discount,
+        "total": total,
+        "payment_method": payload.payment_method,
+        "payment_status": "paid",
+        "cash_tendered": cash_tendered,
+        "change": change,
+        "cashier_name": p.name,
+    }
+    # atomic guard: a concurrent double-pay can never both succeed
+    res = await db.orders.update_one({"id": id, "payment_status": "pending"}, {"$set": changes})
+    if not res.matched_count:
+        raise HTTPException(status_code=409, detail="Pesanan ini sudah dibayar")
+    await audit("order.pay", p, store_id=doc.get("store_id"), detail={"order_id": id, "order_no": doc.get("order_no"), "total": total, "method": payload.payment_method})
+    return _to_order({**doc, **changes})
+
+
+@router.post("/orders/{id}/cancel", response_model=Order)
+async def cancel_pending_order(id: str, payload: CancelIn, p: Principal = Depends(get_principal)):
+    """Cashier/owner cancels a pending customer order (no-show, duplicate, customer request).
+    The order stays in history as VOID with the reason; it never counted as revenue."""
+    doc = await db.orders.find_one({"id": id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Order not found")
+    await resolve_store(p, doc.get("store_id"))
+    if doc.get("channel") != "customer" or doc.get("payment_status") != "pending":
+        raise HTTPException(status_code=409, detail="Hanya pesanan online yang belum bayar yang bisa dibatalkan")
+    reason = payload.reason.strip()
+    changes = {"voided": True, "void_reason": reason, "voided_at": datetime.now(timezone.utc), "voided_by": p.name}
+    # atomic guard: pay and cancel race — exactly one can win
+    res = await db.orders.update_one({"id": id, "payment_status": "pending"}, {"$set": changes})
+    if not res.matched_count:
+        raise HTTPException(status_code=409, detail="Pesanan ini sudah dibayar")
+    await audit("order.cancel", p, store_id=doc.get("store_id"), detail={"order_id": id, "order_no": doc.get("order_no"), "reason": reason})
+    return _to_order({**doc, **changes})
+
+
 async def find_orders(store_id: Optional[str], start_d: str, end_d: str, sort: int = -1) -> list[dict]:
     q: dict = {"business_date": {"$gte": start_d, "$lte": end_d}}
     if store_id:
@@ -180,7 +273,8 @@ async def list_orders(
     start_d, end_d = date_range(start, end)
     sid = await resolve_store(p, store_id, allow_all=True)
     orders = [_to_order(d) for d in await find_orders(sid, start_d, end_d)]
-    valid = [o for o in orders if not o.voided]  # voided orders are listed but never counted
+    # pending (unpaid customer) orders are listed — the cashier must see them — but never counted as revenue
+    valid = [o for o in orders if not o.voided and o.payment_status != "pending"]
     voided = [o for o in orders if o.voided]
     by_method = {"cash": 0, "card": 0, "qris": 0}
     for o in valid:

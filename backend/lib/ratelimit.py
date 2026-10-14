@@ -36,12 +36,14 @@ def client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def check_rate(key: str) -> None:
+def check_rate(key: str, limit: int = RATE_LIMIT, window_seconds: int = RATE_WINDOW) -> None:
+    """Sliding-window throttle; callers may pass custom limits (e.g. looser for public menu
+    reads behind one stall Wi-Fi IP, tighter for public order creation)."""
     _prune()
     now = time.monotonic()
-    window = [t for t in _attempts.get(key, []) if now - t < RATE_WINDOW]
-    if len(window) >= RATE_LIMIT:
-        retry = int(RATE_WINDOW - (now - window[0])) + 1
+    window = [t for t in _attempts.get(key, []) if now - t < window_seconds]
+    if len(window) >= limit:
+        retry = int(window_seconds - (now - window[0])) + 1
         raise HTTPException(status_code=429, detail="Terlalu banyak percobaan. Coba lagi nanti.", headers={"Retry-After": str(retry)})
     window.append(now)
     _attempts[key] = window
