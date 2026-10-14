@@ -1,0 +1,12 @@
+.git
+.emergent
+**/node_modules
+frontend/dist
+backend/.venv
+**/__pycache__
+**/.env
+backups
+test_reports
+tests
+memory
+*.bat
