@@ -341,6 +341,15 @@ async def delete_custom_category(category_id: str, p: Principal = Depends(get_pr
     await audit("menu.custom_category.delete", p, detail={"category_id": category_id})
 
 
+@router.get("/menu/bundle")
+async def menu_bundle_authed(store_id: Optional[str] = Query(None), p: Principal = Depends(get_principal)):
+    """Same payload as /public/menu/{code} but for an authenticated session (the POS)."""
+    sid = await resolve_store(p, store_id)
+    store = await db.stores.find_one({"id": sid}, {"_id": 0, "pin_hash": 0, "approval_pin_hash": 0})
+    from routers.public import menu_bundle
+    return await menu_bundle(store, include_legacy=True)
+
+
 # ---- Custom topping groups (owner only to change; public to read) ----
 def _clean_group(payload: CustomGroupIn) -> dict:
     data = payload.model_dump()

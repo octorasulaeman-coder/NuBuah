@@ -4,7 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import MenuPhoto from "@/components/MenuPhoto";
-import { type Groups, type MenuOption, type OptionGroup, type Product } from "@/data/menu";
+import { type Groups, type MenuOption, type OptionGroup, type Product } from "@/lib/useMenu";
 import { defaultSelection, isValid, lineName, priceLine, toOrderLine, type Selection, type Size } from "@/lib/pricing";
 import { kShort, rupiah } from "@/lib/format";
 import type { OrderLineIn } from "@/lib/types";
@@ -48,7 +48,7 @@ function optPriceLabel(o: MenuOption, size: Size | null) {
 
 function GroupPicker({ group, sel, onToggle }: { group: OptionGroup; sel: Selection; onToggle: (g: OptionGroup, o: MenuOption) => void }) {
   const picked = sel.picks[group.id] ?? [];
-  const full = group.max !== undefined && picked.length >= group.max && group.type === "multi";
+  const full = group.max != null && picked.length >= group.max && group.type === "multi";
   const tiers = [...new Set(group.options.map((o) => o.tier ?? ""))];
   return (
     <section className="space-y-2" data-testid={`group-${group.id}`}>
@@ -119,7 +119,7 @@ export default function ItemDialog({
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-xl" data-testid="item-dialog">
         <DialogHeader>
           <div className="flex items-center gap-3">
-            <MenuPhoto id={product.id} name={product.name} color={product.color} category={product.category} className="size-14 rounded-xl" />
+            <MenuPhoto id={product.id} name={product.name} color={product.color} category={product.category} photo={product.photo} className="size-14 rounded-xl" />
             <div className="min-w-0">
               <DialogTitle className="font-heading text-lg font-extrabold italic text-teal-deep" data-testid="item-dialog-title">
                 {product.code && <span className="mr-1.5 rounded-md bg-teal-brand px-1.5 py-0.5 text-xs not-italic text-white">{product.code}</span>}

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { CloudOff, Minus, Plus, Printer, Search, Settings2, ShoppingBag, Trash2, X } from "lucide-react";
 import { Bell } from "lucide-react";
+import { CalendarClock } from "lucide-react";
+import ScheduledDialog from "@/components/pos/ScheduledDialog";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -14,8 +16,8 @@ import MenuPhoto from "@/components/MenuPhoto";
 import ItemDialog from "@/components/pos/ItemDialog";
 import CheckoutDialog from "@/components/pos/CheckoutDialog";
 import CustomerOrdersDialog from "@/components/pos/CustomerOrdersDialog";
-import MenuEditor from "@/components/pos/MenuEditor";
-import { type CategoryId, type Product } from "@/data/menu";
+import MenuManager from "@/components/pos/MenuManager";
+import { type Product } from "@/lib/useMenu";
 import { kShort, plain, rupiah } from "@/lib/format";
 // receipt printing for completed sales lives in ReceiptSuccessDialog
 import { useMenu } from "@/lib/useMenu";
@@ -36,7 +38,7 @@ const SORT_KEY = "nb-pos-sort";
 const SORT_LABEL: Record<SortMode, string> = { default: "Urutan menu", az: "Nama A-Z", za: "Nama Z-A", cheap: "Harga termurah", pricey: "Harga termahal" };
 
 export default function Pos() {
-  const [cat, setCat] = useState<CategoryId | "all">("all");
+  const [cat, setCat] = useState<string | "all">("all");
   const [q, setQ] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [configuring, setConfiguring] = useState<Product | null>(null);
@@ -45,6 +47,7 @@ export default function Pos() {
   const [paidOnline, setPaidOnline] = useState<Order | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [incomingOpen, setIncomingOpen] = useState(false);
+  const [scheduledOpen, setScheduledOpen] = useState(false);
 
   // Offline queue: badge count + background sync (on load, on 'online', every 30s).
   const [queueCount, setQueueCount] = useState(() => queuedOrders().length);
@@ -131,6 +134,15 @@ export default function Pos() {
                 </span>
               )}
             </button>
+            <button
+              onClick={() => setScheduledOpen(true)}
+              className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-white/30"
+              title="Pesanan dengan jadwal ambil"
+              data-testid="scheduled-orders-button"
+            >
+              <CalendarClock size={14} />
+              <span className="hidden xl:inline">Terjadwal</span>
+            </button>
             {queueCount > 0 && (
               <span
                 className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1 text-xs font-semibold text-white"
@@ -141,16 +153,18 @@ export default function Pos() {
                 {queueCount} menunggu kirim
               </span>
             )}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="rounded-full text-white/85 hover:bg-white/10 hover:text-white"
-              onClick={() => setEditorOpen(true)}
-              disabled={!storeId}
-              data-testid="pos-menu-editor-button"
-            >
-              <Settings2 /> <span className="hidden xl:inline">Kelola Menu</span>
-            </Button>
+            {isOwner && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="rounded-full text-white/85 hover:bg-white/10 hover:text-white"
+                onClick={() => setEditorOpen(true)}
+                disabled={!storeId}
+                data-testid="pos-menu-editor-button"
+              >
+                <Settings2 /> <span className="hidden xl:inline">Kelola Menu</span>
+              </Button>
+            )}
           </>
         }
       />
@@ -232,7 +246,7 @@ export default function Pos() {
                     )}
                     <span className="absolute -top-8 -right-8 size-24 rounded-full opacity-20" style={{ background: p.color }} />
                     <div className="flex w-full items-start justify-between">
-                      <MenuPhoto id={p.id} name={p.name} color={p.color} category={p.category} className="size-12 rounded-xl" />
+                      <MenuPhoto id={p.id} name={p.name} color={p.color} category={p.category} photo={p.photo} className="size-12 rounded-xl" />
                       {p.code && <span className="rounded-md bg-teal-brand px-1.5 py-0.5 font-heading text-[11px] font-extrabold italic text-white">{p.code}</span>}
                     </div>
                     <div className="min-h-10 font-heading text-sm leading-tight font-bold text-teal-deep">{p.name}</div>
@@ -371,11 +385,23 @@ export default function Pos() {
         onDone={(order) => {
           setCheckoutOpen(false);
           setCart([]);
+          // pay-at-pickup orders have no payment yet — the toast already confirmed the
+          // schedule; the receipt prints when payment is recorded at pickup
+          if (order.payment_status === "pending") return;
           setReceipt(order);
         }}
       />
 
       <ReceiptSuccessDialog order={receipt} onClose={() => setReceipt(null)} />
+      <Dialog open={scheduledOpen} onOpenChange={setScheduledOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl" data-testid="scheduled-dialog-content">
+          <DialogHeader>
+            <DialogTitle className="sr-only">Pesanan terjadwal</DialogTitle>
+            <DialogDescription className="sr-only">Antrian pesanan dengan jadwal ambil</DialogDescription>
+          </DialogHeader>
+          <ScheduledDialog onClose={() => setScheduledOpen(false)} />
+        </DialogContent>
+      </Dialog>
       <CustomerOrdersDialog
         open={incomingOpen}
         onClose={() => setIncomingOpen(false)}
@@ -385,7 +411,7 @@ export default function Pos() {
         }}
       />
       <ReceiptSuccessDialog order={paidOnline} onClose={() => setPaidOnline(null)} />
-      <MenuEditor open={editorOpen} onOpenChange={setEditorOpen} products={allProducts} categories={categories} customCategories={customCategories} customGroups={customGroups} groups={allGroups} optionOverridden={optionOverridden} storeId={storeId} isOwner={isOwner} />
+      <MenuManager open={editorOpen} onOpenChange={setEditorOpen} storeId={storeId} />
     </div>
   );
 }

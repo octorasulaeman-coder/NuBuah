@@ -16,11 +16,11 @@ from zoneinfo import ZoneInfo
 
 from bson import json_util
 
+from lib.backup_collections import COLLECTIONS, fingerprint_payload, verify_data
 from lib.db import db
 
 logger = logging.getLogger(__name__)
 
-COLLECTIONS = ["orders", "stores", "users", "menu_overrides", "option_overrides", "custom_products", "custom_options", "custom_categories", "product_codes", "custom_groups", "menu_edits", "counters", "audit", "drawer_events"]
 STORE_TZ = os.environ.get("STORE_TZ", "Asia/Jakarta")
 BACKUP_DIR = Path(os.environ.get("BACKUP_DIR") or (Path(__file__).resolve().parent.parent.parent / "backups"))
 KEEP_DAYS = max(1, int(os.environ.get("BACKUP_KEEP_DAYS", "14")))
@@ -80,13 +80,42 @@ async def create_backup() -> dict:
     data = {"app": "nubuah", "version": 1, "created_at": datetime.now(timezone.utc), "collections": {}}
     for name in COLLECTIONS:
         data["collections"][name] = await db[name].find({}, {"_id": 0}).to_list(None)
+    counts = {k: len(v) for k, v in data["collections"].items()}
+    # integrity checksum over the collections payload — verified again before any restore
+    data["counts"] = counts
+    data["sha256"] = fingerprint_payload(data)
     text = json_util.dumps(data, json_options=json_util.CANONICAL_JSON_OPTIONS)
     path = BACKUP_DIR / f"nubuah-backup-{now:%Y-%m-%d-%H%M}.json.gz"
     await asyncio.to_thread(_write, path, text)
     await asyncio.to_thread(_prune)
-    counts = {k: len(v) for k, v in data["collections"].items()}
     logger.info("backup saved: %s %s", path.name, counts)
-    return {"name": path.name, "size": path.stat().st_size, "counts": counts}
+    return {"name": path.name, "size": path.stat().st_size, "counts": counts, "sha256": data["sha256"]}
+
+
+def _verify_file(path: Path) -> dict:
+    """Parse a backup file and check its integrity. Pure file read; no database access."""
+    with gzip.open(path, "rt", encoding="utf-8") as fh:
+        data = json_util.loads(fh.read())
+    ok, message = verify_data(data)
+    counts = {k: len(v) for k, v in data.get("collections", {}).items()}
+    return {
+        "name": path.name,
+        "ok": ok,
+        "message": message,
+        "created_at": str(data.get("created_at", "?")),
+        "counts": counts,
+        "sha256": data.get("sha256"),
+    }
+
+
+async def verify_backup(name: str) -> dict:
+    """Verify a named backup file (owner-facing). Raises ValueError on a bad name/path."""
+    if not NAME_RE.match(name):
+        raise ValueError("Invalid file name")
+    path = BACKUP_DIR / name
+    if not path.is_file():
+        raise FileNotFoundError(name)
+    return await asyncio.to_thread(_verify_file, path)
 
 
 async def backup_loop(first_delay: int = 20, every: int = 1800) -> None:

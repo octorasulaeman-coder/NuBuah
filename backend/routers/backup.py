@@ -28,6 +28,20 @@ async def backup_run(p: Principal = Depends(get_principal)):
     return result
 
 
+@router.get("/backup/verify/{name}")
+async def backup_verify(name: str, p: Principal = Depends(get_principal)):
+    """Integrity-check a backup file before trusting it (owner only)."""
+    _owner(p)
+    try:
+        result = await bk.verify_backup(name)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid file name")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Backup not found")
+    await audit("backup.verify", p, detail={"name": name, "ok": result["ok"]})
+    return result
+
+
 @router.get("/backup/download/{name}")
 async def backup_download(name: str, p: Principal = Depends(get_principal)):
     _owner(p)

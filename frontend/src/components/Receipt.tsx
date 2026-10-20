@@ -63,20 +63,32 @@ export default function Receipt({ order }: { order: Order }) {
         </div>
       ))}
       <div className="receipt-rule" />
+      {(!!order.discount_amount || !!order.coupon_amount || !!order.redeem_value_amount) && (
+        <div className="receipt-row">
+          <span>Subtotal</span>
+          <span data-testid="receipt-subtotal">{plain(order.subtotal ?? order.total + (order.discount_amount ?? 0) + (order.coupon_amount ?? 0) + (order.redeem_value_amount ?? 0))}</span>
+        </div>
+      )}
       {!!order.discount_amount && (
-        <>
-          <div className="receipt-row">
-            <span>Subtotal</span>
-            <span data-testid="receipt-subtotal">{plain(order.subtotal ?? order.total + order.discount_amount)}</span>
-          </div>
-          <div className="receipt-row" data-testid="receipt-discount">
-            <span>
-              Diskon{order.discount_type === "percent" ? ` ${order.discount_value}%` : ""}
-              {order.discount_note ? ` (${order.discount_note})` : ""}
-            </span>
-            <span>-{plain(order.discount_amount)}</span>
-          </div>
-        </>
+        <div className="receipt-row" data-testid="receipt-discount">
+          <span>
+            Diskon{order.discount_type === "percent" ? ` ${order.discount_value}%` : ""}
+            {order.discount_note ? ` (${order.discount_note})` : ""}
+          </span>
+          <span>-{plain(order.discount_amount)}</span>
+        </div>
+      )}
+      {!!order.coupon_amount && (
+        <div className="receipt-row" data-testid="receipt-coupon">
+          <span>Kupon {order.coupon_code}</span>
+          <span>-{plain(order.coupon_amount)}</span>
+        </div>
+      )}
+      {!!order.redeem_value_amount && (
+        <div className="receipt-row" data-testid="receipt-points">
+          <span>Poin ({order.points_redeemed} poin)</span>
+          <span>-{plain(order.redeem_value_amount)}</span>
+        </div>
       )}
       <div className="receipt-row receipt-total">
         <span>TOTAL</span>

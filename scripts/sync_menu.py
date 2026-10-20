@@ -91,7 +91,7 @@ def replace_maps(s: str) -> str:
 
 
 def opt(oid, label, r=0, l=None, extra=None):
-    return {"id": oid, "label": label, "r": r, "l": l}
+    return {"id": oid, "label": label, "r": r, "l": l, "extra": extra or {}}
 
 
 def parse_menu() -> tuple[dict, dict, dict]:
@@ -172,6 +172,119 @@ def parse_menu() -> tuple[dict, dict, dict]:
     add("sp-sop-buah", K(17), None, False, "fixed", ["kuah"], auto_codes.get("sp-sop-buah", "SB"), "Sop Buah")
 
     return products, groups, option_labels, codes
+
+
+def parse_full_menu() -> dict:
+    """Full menu as unified rows: products/groups/options/categories with every display field.
+    Used by scripts/migrate_menu_to_db.py to seed the database-backed menu."""
+    src = MENU_TS.read_text(encoding="utf-8")
+    seeds = {
+        name: eval(to_py(extract(src, name)))
+        for name in ("SMOOTHIES", "BOWLS", "JUS", "ES_KUL_KUL", "ES_LOLI", "YOGURT_CIMORY",
+                     "FRUIT_TIERS", "BOWL_TOPPINGS", "POTONG_FRUITS", "CATEGORIES")
+    }
+    SMOOTHIES, BOWLS, JUS = seeds["SMOOTHIES"], seeds["BOWLS"], seeds["JUS"]
+    ES_KUL_KUL, ES_LOLI, YOGURT = seeds["ES_KUL_KUL"], seeds["ES_LOLI"], seeds["YOGURT_CIMORY"]
+    FRUIT_TIERS, BOWL_TOPPINGS, POTONG_FRUITS = seeds["FRUIT_TIERS"], seeds["BOWL_TOPPINGS"], seeds["POTONG_FRUITS"]
+    CATEGORIES = seeds["CATEGORIES"]
+
+    codes_src = CODES_TS.read_text(encoding="utf-8")
+    auto_codes = eval(extract(codes_src, "AUTO_CODES"))
+
+    # option groups (same pipeline as parse_menu)
+    gi = src.index("export const GROUPS")
+    gi = src.index("{", gi)
+    g = src[gi:match_bracket(src, gi) + 1]
+    g = g.replace(
+        "FRUIT_TIERS.flatMap((t) => t.fruits.map((f) => opt(`cf-${slug(f)}`, f, t.price, undefined, { tier: t.tier })))",
+        '[opt(f"cf-{slug(f)}", f, t["price"], None, {"tier": t["tier"]}) for t in FRUIT_TIERS for f in t["fruits"]]',
+    )
+    g = g.replace(
+        "...[\"Original\", \"Strawberry\", \"Blueberry\", \"Mango\", \"Peach\"].map((v) => opt(`yogurt-${slug(v)}`, `Yogurt ${v}`, K(3))),",
+        '*[opt(f"yogurt-{slug(v)}", f"Yogurt {v}", K(3)) for v in ["Original", "Strawberry", "Blueberry", "Mango", "Peach"]],',
+    )
+    g = re.sub(r"`([^`]*)`", lambda m: 'f"' + m.group(1).replace("${", "{") + '"', g)
+    g = g.replace("undefined", "None")
+    g = to_py(g)
+    g = replace_maps(g)
+    g = re.sub(r":\s*\*\[", ": [", g)
+    g = re.sub(r"\btrue\b", "True", g)
+    g = re.sub(r"\bfalse\b", "False", g)
+    if ".map(" in g or "flatMap" in g:
+        raise SystemExit("parse_full_menu: unhandled .map()/flatMap in GROUPS — special-case it in scripts/sync_menu.py")
+    env = {"opt": opt, "K": K, "slug": slug, "BOWL_TOPPINGS": BOWL_TOPPINGS,
+           "POTONG_FRUITS": POTONG_FRUITS, "FRUIT_TIERS": FRUIT_TIERS, "None": None}
+    groups_raw = eval(g, env)
+
+    DRINK_GROUPS = ["sweet", "ice", "drink_extra"]
+    products: list[dict] = []
+
+    def prow(pid, name, *, code=None, category, section="", groups, desc="", benefit="", color,
+             sizes, pricing, r, l=None, img=True):
+        products.append({
+            "id": pid, "name": name, "code": code or auto_codes.get(pid), "category": category,
+            "section": section, "groups": groups, "desc": desc, "benefit": benefit,
+            "emoji": None, "img": f"/img/menu/{pid}.webp" if img else None, "img_id": None,
+            "color": color, "sizes": sizes, "pricing": pricing, "r": r, "l": l,
+        })
+
+    for code, name, desc, benefit, r, l, color in SMOOTHIES:
+        prow(f"sm-{code.lower()}", name, code=code, category="smoothie", groups=DRINK_GROUPS,
+             desc=desc, benefit=benefit, color=color, sizes=True, pricing="fixed", r=K(r), l=K(l))
+    for code, name, desc, price, color in BOWLS:
+        prow(f"bw-{slug(name)}", name, code=code, category="bowl", groups=["bowl_topping", "bowl_extra"],
+             desc=desc, color=color, sizes=False, pricing="fixed", r=K(price))
+    for name, r, l, color in JUS:
+        pid = f"js-{slug(name)}"
+        prow(pid, name, category="jus", groups=DRINK_GROUPS, color=color, sizes=True, pricing="fixed", r=K(r), l=K(l))
+    prow("js-ekonomis", "Jus Ekonomis", category="jus", desc="Bebas pilih satu buah (porsi buah lebih dikit)",
+         color="#FFE81A", sizes=True, pricing="fixed", r=K(10), l=K(13), groups=["eko_fruit", *DRINK_GROUPS])
+    prow("bp-buah-potong", "Buah Potong", category="potong", section="Buah Potong",
+         desc="Single / Mix 11K (max 4 macam) · Mix Spesial 16K (>4 macam)", color="#F6A03A",
+         sizes=False, pricing="potong", r=K(11), l=K(16), groups=["potong_fruit", "potong_extra"], img=False)
+    prow("cu-jus", "Custom Jus", category="custom", desc="Pilih 1–3 buah · Reguler 400ml +3K · Large 600ml +6K",
+         color="#F08FA4", sizes=True, pricing="custom", r=K(3), l=K(6),
+         groups=["custom_fruit", "ice", "sweet", "drink_extra"], img=False)
+    prow("cu-bowl", "Custom Smoothie Bowl", category="custom", desc="Pilih 1–3 buah · Bowl Reguler +9K · topping 1K",
+         color="#F5C842", sizes=False, pricing="custom", r=K(9),
+         groups=["custom_fruit", "sweet", "bowl_topping", "custom_bowl_extra"], img=False)
+    for f, price in ES_KUL_KUL:
+        prow(f"ek-{slug(f)}", f"Es Kul Kul {f}", category="snack", section="Es Kul Kul",
+             desc=f"Rasa {f}", color="#7FD0E8", sizes=False, pricing="fixed", r=price, groups=[], img=False)
+    for f, price in ES_LOLI:
+        prow(f"el-{slug(f)}", f"Es Loli {f}", category="snack", section="Es Loli",
+             desc=f"Rasa {f}", color="#F6A5C0", sizes=False, pricing="fixed", r=price, groups=[], img=False)
+    for f in YOGURT:
+        prow(f"yc-{slug(f)}", f"Yogurt Cimory {f}", category="snack", section="Yogurt Cimory",
+             desc=f"Rasa {f}", color="#F4E3B8", sizes=False, pricing="fixed", r=3000, groups=[], img=False)
+    prow("sp-sop-buah", "Sop Buah", category="sopsalad", section="Sop Buah",
+         desc="Sop buah segar · pilih kuah jeruk, susu atau jus", color="#9BD77A",
+         sizes=False, pricing="fixed", r=K(17), groups=["kuah"], img=False)
+
+    group_rows = []
+    option_rows = []
+    for gid, gdef in groups_raw.items():
+        group_rows.append({"id": gid, "label": gdef.get("label", gid), "type": gdef.get("type", "multi"),
+                           "min": gdef.get("min", 0), "max": gdef.get("max"), "hint": gdef.get("hint", ""),
+                           "product_ids": [], "builtin": True})
+        for o in gdef["options"]:
+            extra = o.get("extra") or {}
+            option_rows.append({"id": o["id"], "group_id": gid, "label": o["label"],
+                                "r": o["r"], "l": o.get("l"), "default": bool(extra.get("default", False)),
+                                "tier": extra.get("tier"), "builtin": True})
+
+    # attach groups to the products that list them (product_ids mirrors the old topping-group link)
+    pid_groups: dict[str, list[str]] = {}
+    for p in products:
+        for gid in p["groups"] or []:
+            pid_groups.setdefault(gid, []).append(p["id"])
+    for gr in group_rows:
+        gr["product_ids"] = pid_groups.get(gr["id"], [])
+
+    cat_rows = [{"id": c["id"], "label": c.get("label", c["id"]), "blurb": c.get("blurb", ""),
+                 "color": "#0d9488", "builtin": True} for c in CATEGORIES]
+
+    return {"products": products, "groups": group_rows, "options": option_rows, "categories": cat_rows}
 
 
 # ---------------------------------------------------------------- emitters

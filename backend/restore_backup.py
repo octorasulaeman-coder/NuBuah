@@ -14,7 +14,8 @@ from bson import json_util
 from dotenv import load_dotenv
 from pymongo import MongoClient
 
-COLLECTIONS = ["orders", "stores", "users", "menu_overrides", "option_overrides", "custom_products", "custom_options", "custom_categories", "product_codes", "custom_groups", "menu_edits", "counters", "audit", "drawer_events"]
+sys.path.insert(0, str(Path(__file__).parent))
+from lib.backup_collections import COLLECTIONS, verify_data  # noqa: E402
 
 
 def dump_current(db) -> str:
@@ -45,8 +46,10 @@ def main() -> None:
     db = MongoClient(os.environ["MONGO_URL"])[os.environ["DB_NAME"]]
     with gzip.open(path, "rt", encoding="utf-8") as fh:
         data = json_util.loads(fh.read())
-    if data.get("app") != "nubuah":
-        sys.exit("This is not a NuBuah backup file.")
+    ok, message = verify_data(data)
+    print(f"Verification: {message}")
+    if not ok:
+        sys.exit("Restore ABORTED: backup failed verification. Nothing was changed.")
     info = {k: len(v) for k, v in data["collections"].items()}
     print(f"Backup {path.name} contains: {info}")
     print("This REPLACES all current data (a safety copy of the current data is saved first).")
@@ -56,7 +59,16 @@ def main() -> None:
     with gzip.open(safety, "wt", encoding="utf-8") as fh:
         fh.write(dump_current(db))
     print(f"Safety copy saved: {safety}")
-    print("Restored:", restore(db, data))
+    restored = restore(db, data)
+    print("Restored:", restored)
+    # post-restore sanity: every collection present in the backup reports its count back
+    mismatches = {c: (restored.get(c), len(data["collections"].get(c) or [])) for c in restored
+                  if restored.get(c) != len(data["collections"].get(c) or [])}
+    if mismatches:
+        print("WARNING: post-restore count mismatches:", mismatches)
+        print("The safety copy can be restored with the same command if needed.")
+    else:
+        print("Post-restore verification OK: counts match the backup for every collection.")
     print("Done. Restart the app.")
 
 

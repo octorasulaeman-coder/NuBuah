@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from lib.auth import hash_secret
 from lib.db import db
+from lib.scheduling import DEFAULT_SCHEDULE
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ async def bootstrap() -> None:
                 **DEFAULT_STORE,
                 "pin_hash": hash_secret(os.environ.get("DEFAULT_STORE_PIN", "1234")),
                 "pin_version": 1,
+                "schedule": dict(DEFAULT_SCHEDULE),  # P2 pickup-slot scheduling config
                 "created_at": datetime.now(timezone.utc),
             }
             await db.stores.insert_one(dict(store))
@@ -51,6 +53,20 @@ async def bootstrap() -> None:
             logger.info("bootstrap: created owner %s", email)
             if owner_password is None:
                 logger.warning("bootstrap: owner password is the default 'nubuah123'; the owner must change it on first login.")
+
+        # P2/P5 migrations (idempotent, additive — no records are rewritten destructively):
+        # 1) stores created before scheduling existed get the default schedule config
+        await db.stores.update_many({"schedule": {"$exists": False}}, {"$set": {"schedule": dict(DEFAULT_SCHEDULE)}})
+        # 1b) stores without a loyalty config get the defaults (env-tunable values)
+        from lib.loyalty import CONFIG as DEFAULT_LOYALTY
+        await db.stores.update_many({"loyalty": {"$exists": False}}, {"$set": {"loyalty": dict(DEFAULT_LOYALTY.__dict__)}})
+        # 2) orders saved before the status field: paid+not-voided orders were effectively
+        #    finished business, so backfill them as completed; everything else starts received
+        await db.orders.update_many(
+            {"status": {"$exists": False}, "payment_status": "paid", "voided": {"$ne": True}},
+            {"$set": {"status": "completed"}},
+        )
+        await db.orders.update_many({"status": {"$exists": False}}, {"$set": {"status": "received"}})
 
         # Legacy single-store data -> default store.
         snap = {"store_id": store["id"], "store_name": store["name"], "store_address_lines": store["address_lines"], "store_phone": store["phone"]}

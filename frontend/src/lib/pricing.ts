@@ -1,4 +1,4 @@
-import type { Groups, MenuOption, Product } from "@/data/menu";
+import type { Groups, MenuOption, Product } from "@/lib/useMenu";
 import type { OrderLineIn, OrderLineOption } from "@/lib/types";
 
 export type Size = "R" | "L";
@@ -29,7 +29,7 @@ export function isValid(p: Product, sel: Selection, groups: Groups): boolean {
     // Ignore stale group IDs; the UI also omits unavailable groups.
     if (!g) return true;
     const n = sel.picks[gid]?.length ?? 0;
-    return n >= g.min && (g.max === undefined || n <= g.max);
+    return n >= g.min && (g.max == null || n <= g.max);
   });
 }
 

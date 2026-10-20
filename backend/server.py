@@ -25,7 +25,26 @@ async def lifespan(app: FastAPI):
     from lib.backup import backup_loop
 
     app.state.backup_task = asyncio.create_task(backup_loop())  # one automatic backup per day
+
+    # payment expiry sweep: closes pending attempts whose QR window ran out. Rerun-safe,
+    # never touches paid attempts, and only runs when payments are configured at all.
+    async def payment_sweep_loop():
+        from lib.payments import CONFIG, sweep_expirations
+
+        if not CONFIG.enabled:
+            return
+        while True:
+            try:
+                await asyncio.sleep(60)
+                await sweep_expirations()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # a sweep failure must never kill the server task
+                logging.getLogger(__name__).exception("payment sweep failed")
+
+    app.state.payment_sweep_task = asyncio.create_task(payment_sweep_loop())
     yield
+    app.state.payment_sweep_task.cancel()
     app.state.backup_task.cancel()
     client.close()
 
@@ -44,6 +63,10 @@ from routers.backup import router as backup_router  # noqa: E402
 from routers.auth import router as auth_router  # noqa: E402
 from routers.drawer import router as drawer_router  # noqa: E402
 from routers.public import router as public_router  # noqa: E402
+from routers.menu_admin import router as menu_admin_router
+from routers.stores import router as stores_router  # noqa: E402
+from routers.payments import router as payments_router  # noqa: E402
+from routers.customers import router as customers_router  # noqa: E402
 
 api_router.include_router(auth_router)
 api_router.include_router(orders_router)
@@ -52,6 +75,10 @@ api_router.include_router(reports_router)
 api_router.include_router(backup_router)
 api_router.include_router(drawer_router)
 api_router.include_router(public_router)
+api_router.include_router(menu_admin_router)
+api_router.include_router(stores_router)
+api_router.include_router(payments_router)
+api_router.include_router(customers_router)
 
 # Include the router in the main app
 app.include_router(api_router)
@@ -96,7 +123,7 @@ async def security_headers(request, call_next):
     resp.headers.setdefault("Referrer-Policy", "same-origin")
     resp.headers.setdefault(
         "Content-Security-Policy",
-        "default-src 'self'; img-src 'self' data:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'",
+        "default-src 'self'; img-src 'self' data: blob:; font-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'",
     )
     return resp
 

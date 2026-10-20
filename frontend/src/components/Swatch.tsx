@@ -1,8 +1,7 @@
 import { cn } from "@/lib/utils";
-import type { CategoryId } from "@/data/menu";
 
 /** Little product glyph tinted with the drink colour: a cup for drinks, a bowl for bowls, a fruit cup for buah potong. */
-export default function Swatch({ color, category, className }: { color: string; category: CategoryId; className?: string }) {
+export default function Swatch({ color, category, className }: { color: string; category: string; className?: string }) {
   if (category === "bowl" || category === "potong") {
     return (
       <svg viewBox="0 0 64 64" className={cn("size-14", className)} aria-hidden="true">

@@ -12,7 +12,12 @@ export function receiptText(o: Order): string {
       ...l.options.filter((x) => x.price !== 0).map((x) => `   + ${x.label} ${plain(x.price)}`),
     ]),
     "",
-    ...(o.discount_amount ? [`Subtotal: ${plain(o.subtotal ?? o.total + o.discount_amount)}`, `Diskon${o.discount_type === "percent" ? ` ${o.discount_value}%` : ""}: -${plain(o.discount_amount)}`] : []),
+    ...(o.discount_amount || o.coupon_amount || o.redeem_value_amount
+      ? [`Subtotal: ${plain((o.subtotal ?? 0) > 0 ? o.subtotal! : o.total + (o.discount_amount ?? 0) + (o.coupon_amount ?? 0) + (o.redeem_value_amount ?? 0))}`]
+      : []),
+    ...(o.discount_amount ? [`Diskon${o.discount_type === "percent" ? ` ${o.discount_value}%` : ""}: -${plain(o.discount_amount)}`] : []),
+    ...(o.coupon_amount ? [`Kupon ${o.coupon_code}: -${plain(o.coupon_amount)}`] : []),
+    ...(o.redeem_value_amount ? [`Poin ${o.points_redeemed}: -${plain(o.redeem_value_amount)}`] : []),
     `*TOTAL Rp ${plain(o.total)}*`,
     `Bayar ${METHOD_LABEL[o.payment_method]}: ${plain(o.cash_tendered ?? o.total)}`,
     ...(o.change !== null ? [`Kembali: ${plain(o.change)}`] : []),

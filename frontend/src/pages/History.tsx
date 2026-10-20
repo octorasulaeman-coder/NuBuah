@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { format, parseISO, startOfMonth, subDays } from "date-fns";
-import { ArrowDown, ArrowUp, ArrowUpDown, Ban, Download, Eye, FileText, Printer, Receipt as ReceiptIcon, Send } from "lucide-react";
+import { format, parse, parseISO, startOfMonth, subDays } from "date-fns";
+import { ArrowDown, ArrowUp, ArrowUpDown, Ban, CalendarDays, Download, Eye, FileText, Printer, Receipt as ReceiptIcon, Send } from "lucide-react";
 import { toast } from "sonner";
 import StaffBar from "@/components/StaffBar";
 import DrawerPanel from "@/components/DrawerPanel";
@@ -9,7 +9,7 @@ import { useActiveStore } from "@/lib/auth";
 import { PrintFormatToggle, ReceiptActions, usePrintFormat } from "@/lib/receiptTools";
 import ClosingSlip from "@/components/ClosingSlip";
 import Receipt from "@/components/Receipt";
-import SalesChart from "@/components/SalesChart";
+import DashboardSection from "@/components/admin/DashboardSection";
 import WhatsAppShareDialog from "@/components/WhatsAppShareDialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,55 @@ import type { ClosingReport, Order, OrderList, TodayInfo } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const ymd = (d: Date) => format(d, "yyyy-MM-dd");
+
+/** DD/MM/YYYY text input (browser-native date inputs render MM/DD/YYYY in en-US
+ * locales) with a calendar button that opens the native picker on top. */
+function DateTextInput({ id, label, value, onChange, testId }: { id: string; label: string; value: string; onChange: (iso: string) => void; testId: string }) {
+  const [text, setText] = useState(() => format(parseISO(value), "dd/MM/yyyy"));
+  const pickerRef = useRef<HTMLInputElement>(null);
+  useEffect(() => setText(format(parseISO(value), "dd/MM/yyyy")), [value]);
+  const commit = (v: string) => {
+    setText(v);
+    const trimmed = v.trim();
+    if (trimmed.length !== 10) return;
+    const p = parse(trimmed, "dd/MM/yyyy", new Date());
+    if (!isNaN(p.getTime())) onChange(ymd(p));
+  };
+  return (
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <div className="flex items-center gap-1.5">
+        <Input id={id} value={text} onChange={(e) => commit(e.target.value)} placeholder="DD/MM/YYYY" className="w-32 font-mono" data-testid={testId} />
+        <button
+          type="button"
+          aria-label={`Buka kalender ${label}`}
+          onClick={() => pickerRef.current?.showPicker?.()}
+          className="grid size-8 shrink-0 place-items-center rounded-lg border border-input bg-white text-teal-deep hover:border-teal-brand"
+          data-testid={`${testId}-calendar`}
+        >
+          <CalendarDays className="size-4" />
+        </button>
+        <input
+          ref={pickerRef}
+          type="date"
+          value={value}
+          max={ymd(new Date())}
+          onChange={(e) => {
+            // commit immediately — some browsers only fire change on day-click, and a
+            // clipped (sr-only) element can make showPicker unreliable; keep it rendered
+            if (e.target.value) {
+              onChange(e.target.value);
+              setText(format(parseISO(e.target.value), "dd/MM/yyyy"));
+            }
+          }}
+          className="pointer-events-none absolute size-0 opacity-0"
+          tabIndex={-1}
+          aria-hidden="true"
+        />
+      </div>
+    </div>
+  );
+}
 
 type SortKey = "time" | "no" | "customer" | "items" | "method" | "total";
 const compare = (a: Order, b: Order, key: SortKey): number => {
@@ -217,30 +266,8 @@ export default function History() {
 
         {/* Filter bar */}
         <div className="flex flex-wrap items-end gap-4 rounded-2xl border border-border bg-white p-4 shadow-sm">
-          <div className="space-y-1.5">
-            <Label htmlFor="start-date">Dari tanggal</Label>
-            <Input
-              id="start-date"
-              type="date"
-              value={start}
-              max={today}
-              onChange={(e) => e.target.value && setRange({ start: e.target.value, end })}
-              className="w-44"
-              data-testid="history-date-start-input"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="end-date">Sampai tanggal</Label>
-            <Input
-              id="end-date"
-              type="date"
-              value={end}
-              max={today}
-              onChange={(e) => e.target.value && setRange({ start, end: e.target.value })}
-              className="w-44"
-              data-testid="history-date-end-input"
-            />
-          </div>
+          <DateTextInput id="start-date" label="Dari tanggal" value={start} onChange={(iso) => setRange({ start: iso, end })} testId="history-date-start-input" />
+          <DateTextInput id="end-date" label="Sampai tanggal" value={end} onChange={(iso) => setRange({ start, end: iso })} testId="history-date-end-input" />
           <div className="flex flex-wrap gap-2">
             {presets.map((p) => (
               <Button
@@ -278,28 +305,13 @@ export default function History() {
           ))}
         </div>
         <Input value={hq} onChange={(e) => setHq(e.target.value)} placeholder="Cari nama pelanggan, no. HP, atau no. pesanan" className="h-10 max-w-md rounded-full bg-white" data-testid="history-search-input" />
-        {!!summary?.discount_total && (
-          <p className="text-sm text-teal-deep" data-testid="history-discount-note">
-            Diskon diberikan: <b className="font-mono">{rupiah(summary.discount_total)}</b> (sudah dikurangi dari pendapatan).
-          </p>
-        )}
         {!!summary?.voided_count && (
           <p className="text-sm text-amber-700" data-testid="history-voided-note">
             {summary.voided_count} pesanan dibatalkan (void) senilai {rupiah(summary.voided_total ?? 0)} tidak dihitung dalam pendapatan.
           </p>
         )}
-        {summary && (
-          <div className="flex flex-wrap gap-2 text-sm" data-testid="history-method-breakdown">
-            {(["cash", "qris", "card"] as const).map((m) => (
-              <span key={m} className="rounded-full bg-white px-3 py-1 text-teal-deep shadow-sm">
-                {METHOD_LABEL[m]}: <b className="font-mono">{rupiah(summary.by_method[m])}</b>
-              </span>
-            ))}
-          </div>
-        )}
-
         {/* Orders */}
-        {!ordersQ.isError && validRange && ordersQ.data && <SalesChart orders={orders.filter((o) => !o.voided)} start={start} end={end} />}
+        {validRange && storeScope && <DashboardSection start={start} end={end} storeId={storeScope} orders={orders.filter((o) => !o.voided)} />}
         <div className="overflow-hidden rounded-2xl border border-border bg-white shadow-sm">
           <Table>
             <TableHeader>

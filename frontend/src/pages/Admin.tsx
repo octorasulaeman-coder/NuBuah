@@ -6,6 +6,10 @@ import AccountCard from "@/components/AccountCard";
 import BackupCard from "@/components/BackupCard";
 import StaffEditDialog from "@/components/StaffEditDialog";
 import StaffBar from "@/components/StaffBar";
+import CouponsSection from "@/components/admin/CouponsSection";
+import CustomersSection from "@/components/admin/CustomersSection";
+import ScheduleSection from "@/components/admin/ScheduleSection";
+import LoyaltySection from "@/components/admin/LoyaltySection";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -295,6 +299,11 @@ export default function Admin() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <CouponsSection />
+      <div className="lg:col-span-12 border-t border-dashed my-2" />
+      <CustomersSection />
+      <ScheduleSection />
+      <LoyaltySection />
     </div>
   );
 }

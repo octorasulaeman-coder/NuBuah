@@ -38,6 +38,82 @@ STATIC_PRODUCT_CATEGORIES = ("smoothie", "bowl", "jus", "snack", "sopsalad")
 PRODUCT_GROUPS = ("sweet", "ice", "drink_extra", "kuah", "bowl_topping", "bowl_extra")
 
 
+# ---- Unified menu rows (the fully-editable menu; built-in items are migrated into these) ----
+
+class MenuProductIn(BaseModel):
+    """One menu item: built-in and owner-created share this shape."""
+    name: str = Field(min_length=1, max_length=80)
+    code: str = Field(default="", max_length=8)  # unique short code; blank = suggested automatically
+    category: str = Field(min_length=1, max_length=60)
+    section: str = Field(default="", max_length=40)
+    groups: Optional[list[str]] = Field(default=None, max_length=10)  # None = category default
+    desc: str = Field(default="", max_length=300)
+    benefit: str = Field(default="", max_length=120)
+    emoji: Optional[str] = Field(default=None, max_length=8)
+    color: str = Field(default="#F5B83D", pattern=r"^#[0-9a-fA-F]{6}$")
+    sizes: bool = False
+    pricing: Literal["fixed", "potong", "custom"] = "fixed"
+    r: int = Field(ge=0, le=100_000_000)
+    l: Optional[int] = Field(default=None, ge=0, le=100_000_000)
+
+
+class MenuProductRow(MenuProductIn):
+    id: str = Field(min_length=2, max_length=80)
+    # photos are managed ONLY via the image endpoints — never part of the edit payload,
+    # so saving item fields can never wipe them
+    img: Optional[str] = Field(default=None, max_length=200)     # built-in static path or None
+    img_id: Optional[str] = Field(default=None, max_length=64)  # uploaded photo (media collection)
+    builtin: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class MenuGroupIn(BaseModel):
+    label: str = Field(min_length=1, max_length=60)
+    type: Literal["single", "multi"] = "multi"
+    min: int = Field(default=0, ge=0, le=50)
+    max: Optional[int] = Field(default=None, ge=1, le=100)
+    hint: str = Field(default="", max_length=120)
+    product_ids: list[str] = Field(default_factory=list, max_length=1000)  # items that offer this group
+
+
+class MenuGroupRow(MenuGroupIn):
+    id: str = Field(min_length=2, max_length=80)
+    builtin: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class MenuOptionIn(BaseModel):
+    group_id: str = Field(min_length=1, max_length=80)
+    label: str = Field(min_length=1, max_length=60)
+    r: int = Field(ge=-100_000_000, le=100_000_000)
+    l: Optional[int] = Field(default=None, ge=-100_000_000, le=100_000_000)
+    default: bool = False      # preselected in the picker (e.g. Normal Sugar)
+    tier: Optional[str] = Field(default=None, max_length=40)  # sub-heading (custom fruit tiers)
+
+
+class MenuOptionRow(MenuOptionIn):
+    id: str = Field(min_length=2, max_length=80)
+    builtin: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class MenuCategoryIn(BaseModel):
+    label: str = Field(min_length=1, max_length=60)
+    blurb: str = Field(default="", max_length=200)
+    color: str = Field(default="#0d9488", pattern=r"^#[0-9a-fA-F]{6}$")
+
+
+class MenuCategoryRow(MenuCategoryIn):
+    id: str = Field(min_length=2, max_length=80)
+    builtin: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ProductImageIn(BaseModel):
+    data: str = Field(min_length=100, max_length=3_000_000)  # base64 (~1.5MB cap after inflation)
+    content_type: Literal["image/webp", "image/jpeg", "image/png"]
+
+
 class CustomCategoryIn(BaseModel):
     label: str = Field(min_length=1, max_length=40)
     blurb: str = Field(default="", max_length=120)

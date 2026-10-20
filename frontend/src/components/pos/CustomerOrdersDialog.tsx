@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Banknote, CreditCard, QrCode } from "lucide-react";
+import { Banknote, CalendarClock, CreditCard, QrCode } from "lucide-react";
 import { toast } from "sonner";
 import { apiGet, ApiError, apiPost } from "@/lib/api";
 import { useActiveStore } from "@/lib/auth";
 import { rupiah } from "@/lib/format";
-import type { DiscountType, Order, PaymentMethod } from "@/lib/types";
+import type { Customer, DiscountType, Order, PaymentAttemptPublic, PaymentsConfig, PaymentMethod } from "@/lib/types";
+import QrisPaymentDialog from "@/components/payments/QrisPaymentDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -24,6 +25,27 @@ export default function CustomerOrdersDialog({ open, onClose, onPaid }: { open: 
   const [approvalPin, setApprovalPin] = useState("");
   const [canceling, setCanceling] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState("");
+  // P3: when a payment provider is configured, QRIS goes through a real attempt
+  // (QR + backend-confirmed status). Without one, QRIS stays a manual record as before.
+  const [qrisAttempt, setQrisAttempt] = useState<PaymentAttemptPublic | null>(null);
+  const [qrisOrder, setQrisOrder] = useState<Order | null>(null);
+  const paymentsConfig = useQuery({
+    queryKey: ["payments-config"],
+    queryFn: () => apiGet<PaymentsConfig>("/payments/config"),
+    staleTime: 300_000,
+    retry: false,
+  });
+  const qrisOnline = paymentsConfig.data?.enabled === true && (paymentsConfig.data.methods ?? []).includes("qris");
+  const intent = useMutation({
+    mutationFn: (order: Order) =>
+      apiPost<PaymentAttemptPublic>("/payments/intents", { order_id: order.id, method: "qris", idempotency_key: crypto.randomUUID() }),
+    onSuccess: (att) => setQrisAttempt(att),
+    onError: (e) => {
+      toast.error(e instanceof ApiError ? e.message : "Gagal membuat kode QR");
+      setPaying(null);
+      setQrisOrder(null);
+    },
+  });
   const cap = store?.discount_cap ?? 10;
 
   const q = useQuery({
@@ -32,6 +54,17 @@ export default function CustomerOrdersDialog({ open, onClose, onPaid }: { open: 
     enabled: open && !!storeId,
     refetchInterval: 15_000,
   });
+
+  // P5: surface the customer's points balance at payment confirmation. Must live BELOW
+  // the `q` declaration — a hook may not reference bindings declared later (TDZ crash).
+  const payingOrder = (q.data ?? []).find((o) => o.id === paying);
+  const payerPoints = useQuery({
+    queryKey: ["customer-by-phone", payingOrder?.customer_phone ?? ""],
+    queryFn: () => apiGet<Customer[]>(`/customers?search=${encodeURIComponent(payingOrder!.customer_phone!)}`),
+    enabled: !!payingOrder?.customer_phone,
+    staleTime: 15_000,
+  });
+  const payer = payerPoints.data?.find((c) => c.phone === payingOrder?.customer_phone) ?? null;
 
   const pay = useMutation({
     mutationFn: ({
@@ -86,7 +119,7 @@ export default function CustomerOrdersDialog({ open, onClose, onPaid }: { open: 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose} data-testid="customer-orders-dialog">
-      <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-4" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-4" onClick={(e) => e.stopPropagation()}>
         <div className="mb-3 flex items-center justify-between">
           <h3 className="font-heading text-lg font-extrabold italic text-teal-deep">Pesanan online — belum bayar</h3>
           <button onClick={onClose} className="text-sm font-semibold text-muted-foreground">Tutup</button>
@@ -98,13 +131,18 @@ export default function CustomerOrdersDialog({ open, onClose, onPaid }: { open: 
           </p>
         )}
 
-        <ul className="space-y-2">
+        <ul className="grid gap-2 lg:grid-cols-2">
           {orders.map((o) => (
             <li key={o.id} className="rounded-xl border p-3" data-testid={`pending-order-${o.order_no}`}>
               <div className="flex items-center justify-between gap-2">
                 <span className="font-mono font-bold text-teal-deep">{o.order_no}</span>
                 <span className="text-xs text-muted-foreground">{new Date(o.created_at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</span>
               </div>
+              {o.fulfillment === "scheduled" && o.scheduled_for && (
+                <p className="mt-1 flex items-center gap-1 text-xs font-semibold text-teal-deep" data-testid={`pickup-${o.order_no}`}>
+                  <CalendarClock size={12} /> Ambil: {new Date(o.scheduled_for).toLocaleString("id-ID", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                </p>
+              )}
               <p className="mt-1 text-sm">
                 {o.customer_name ? `${o.customer_name} · ` : ""}
                 <span className="text-muted-foreground">{o.customer_phone}</span>
@@ -257,17 +295,29 @@ export default function CustomerOrdersDialog({ open, onClose, onPaid }: { open: 
                       Diskon {rupiah(disc)}{dNote.trim() ? ` · ${dNote.trim()}` : ""} → total <b>{rupiah(grand)}</b>
                     </p>
                   )}
+                  {payer && (
+                    <p className="rounded-full bg-mint px-3 py-1 text-[11px] font-semibold text-teal-deep" data-testid="payer-points">
+                      {payer.name} — saldo {payer.points} poin
+                    </p>
+                  )}
                   <div className="flex gap-2">
                     <Button
                       size="sm"
                       className="flex-1 rounded-full bg-teal-brand hover:bg-teal-deep"
                       disabled={
                         pay.isPending ||
+                        intent.isPending ||
                         (method === "cash" && cashNum < grand) ||
                         (needsApproval && approvalPin.length < 4) ||
                         (dMode !== "none" && !dVal)
                       }
-                      onClick={() =>
+                      onClick={() => {
+                        if (method === "qris" && qrisOnline) {
+                          // start a real payment attempt; the QR dialog reports the outcome
+                          setQrisOrder(o);
+                          intent.mutate(o);
+                          return;
+                        }
                         pay.mutate({
                           id: o.id,
                           body: {
@@ -279,7 +329,7 @@ export default function CustomerOrdersDialog({ open, onClose, onPaid }: { open: 
                             approval_pin: approvalPin || null,
                           },
                         })
-                      }
+                      }}
                       data-testid={`confirm-pay-${o.order_no}`}
                     >
                       {pay.isPending ? "Menyimpan…" : `Lunas — ${rupiah(grand)}`}
@@ -293,6 +343,27 @@ export default function CustomerOrdersDialog({ open, onClose, onPaid }: { open: 
           ))}
         </ul>
       </div>
+      {qrisAttempt && (
+        <QrisPaymentDialog
+          attempt={qrisAttempt}
+          pollBase="/payments"
+          onPaid={() => {
+            toast.success("Pembayaran diterima");
+            setQrisAttempt(null);
+            setQrisOrder(null);
+            setPaying(null);
+            qc.invalidateQueries({ queryKey: ["orders", "pending", storeId] });
+          }}
+          onRetry={() => {
+            if (qrisOrder) intent.mutate(qrisOrder);
+          }}
+          onClose={() => {
+            setQrisAttempt(null);
+            setQrisOrder(null);
+            setPaying(null);
+          }}
+        />
+      )}
     </div>
   );
 }

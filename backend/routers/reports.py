@@ -10,10 +10,29 @@ from fastapi.responses import Response
 
 from lib.auth import Principal, get_principal, resolve_store
 from lib.db import db
-from models.report import ClosingReport, MethodTotal, StoreTotal, TopItem
+from models.report import (
+    ClosingReport, DailyPoint, Dashboard, MethodTotal, ProductPerformance,
+    ProductPerf, StoreTotal, TopItem,
+)
 from routers.orders import STORE_TZ, date_range, find_orders
 
 router = APIRouter()
+
+# Metric definitions, returned with every report so the UI can label numbers honestly.
+# Single source of truth — the aggregations below implement exactly these rules.
+DEFINITIONS = {
+    "qualifying_order": "not voided AND payment_status == 'paid'",
+    "gross_sales": "sum(total + discount_amount) over qualifying orders (before discounts)",
+    "net_sales": "sum(total) over qualifying orders (after discounts, before refunds)",
+    "discounts_total": "sum(discount_amount) over qualifying orders (never double-counted: stored once per order)",
+    "refunds_total": "sum(refunded amounts) of payment attempts with refund_status == 'refunded' whose order is in range",
+    "net_after_refunds": "net_sales - refunds_total",
+    "average_order_value": "net_sales / qualifying_orders",
+    "voided_orders": "excluded from every sales figure; counted separately",
+    "pending_orders": "unpaid customer orders — listed, never counted as revenue",
+    "gross_profit": "UNAVAILABLE: product cost data does not exist in this system; never fabricated",
+    "date_boundary": "business_date strings in the store's timezone (STORE_TZ)",
+}
 
 
 @router.get("/reports/closing", response_model=ClosingReport)
@@ -61,6 +80,11 @@ async def build_closing(p: Principal, start: Optional[str], end: Optional[str], 
     revenue = sum(d["total"] for d in docs)
     count = len(docs)
     top = sorted(items.items(), key=lambda kv: (-kv[1]["qty"], -kv[1]["revenue"]))[:top_n]
+
+    # refunds: attempts refunded against in-range orders (P4.3). Refunds are subtracted,
+    # never treated as new sales.
+    refunds_count, refunds_total = await _refunds_for_orders([d["id"] for d in docs])
+
     return ClosingReport(
         store_name=(await db.stores.find_one({"id": sid}, {"_id": 0, "name": 1}) or {}).get("name") if sid else "Semua toko",
         start=start_d,
@@ -79,8 +103,26 @@ async def build_closing(p: Principal, start: Optional[str], end: Optional[str], 
         voided_total=sum(d["total"] for d in voided),
         gross=revenue + sum(d.get("discount_amount", 0) for d in docs),
         discount_total=sum(d.get("discount_amount", 0) for d in docs),
+        refunds_count=refunds_count,
+        refunds_total=refunds_total,
+        net_after_refunds=revenue - refunds_total,
+        gross_profit_available=False,   # no product cost data — reported, not invented
+        gross_profit=None,
+        definitions=DEFINITIONS,
         by_store=[StoreTotal(store_name=k, **v) for k, v in sorted(by_store.items())],
     )
+
+
+async def _refunds_for_orders(order_ids: list[str]) -> tuple[int, int]:
+    """(count, total) of refunded amounts on payment attempts tied to these orders."""
+    if not order_ids:
+        return 0, 0
+    docs = await db.payment_attempts.find(
+        {"order_id": {"$in": order_ids}, "refund_status": "refunded"},
+        {"_id": 0, "amount": 1, "refunded_amount": 1},
+    ).to_list(10000)
+    total = sum(d.get("refunded_amount") or d.get("amount", 0) for d in docs)
+    return len(docs), total
 
 
 def _safe(v: object) -> object:
@@ -95,6 +137,152 @@ def _discount_label(d: dict) -> str:
         return ""
     kind = f"{d.get('discount_value', 0)}%" if d.get("discount_type") == "percent" else "Rp"
     return f"{kind} {d.get('discount_note') or ''}".strip()
+
+
+@router.get("/reports/dashboard", response_model=Dashboard)
+async def dashboard(start: str = Query(...), end: str = Query(...), store_id: str = Query(None), p: Principal = Depends(get_principal)):
+    """Sales dashboard. All figures follow DEFINITIONS; pending/voided orders are never
+    counted as revenue, refunds are subtracted once, and gross profit is reported as
+    unavailable rather than fabricated."""
+    start_d, end_d = date_range(start, end)
+    sid = await resolve_store(p, store_id, allow_all=True)
+    all_docs = await find_orders(sid, start_d, end_d, sort=1)
+    docs = [d for d in all_docs if not d.get("voided") and d.get("payment_status") != "pending"]
+    voided = [d for d in all_docs if d.get("voided")]
+
+    net = sum(d["total"] for d in docs)
+    discounts = sum(d.get("discount_amount", 0) for d in docs)
+    refunds_count, refunds_total = await _refunds_for_orders([d["id"] for d in docs])
+
+    methods: dict[str, dict] = {}
+    for d in docs:
+        m = methods.setdefault(d.get("payment_method", "unknown"), {"count": 0, "total": 0})
+        m["count"] += 1
+        m["total"] += d["total"]
+
+    by_day: dict[str, dict] = {}
+    for d in docs:
+        day = by_day.setdefault(d["business_date"], {"revenue": 0, "orders": 0, "refunds_total": 0})
+        day["revenue"] += d["total"]
+        day["orders"] += 1
+    if refunds_total:
+        refunded = await db.payment_attempts.find(
+            {"order_id": {"$in": [d["id"] for d in docs]}, "refund_status": "refunded"},
+            {"_id": 0, "order_id": 1, "amount": 1, "refunded_amount": 1},
+        ).to_list(10000)
+        day_of = {d["id"]: d["business_date"] for d in docs}
+        for r in refunded:
+            dd = day_of.get(r["order_id"])
+            if dd in by_day:
+                by_day[dd]["refunds_total"] += r.get("refunded_amount") or r.get("amount", 0)
+
+    return Dashboard(
+        start=start_d, end=end_d, generated_at=datetime.now(timezone.utc),
+        gross_sales=net + discounts,
+        net_sales=net,
+        net_after_refunds=net - refunds_total,
+        qualifying_orders=len(docs),
+        average_order_value=round(net / len(docs)) if docs else 0,
+        discounts_total=discounts,
+        refunds_total=refunds_total,
+        refunds_count=refunds_count,
+        voided_count=len(voided),
+        methods=[MethodTotal(method=k, **v) for k, v in methods.items()],
+        series=[DailyPoint(date=k, **v) for k, v in sorted(by_day.items())],
+        gross_profit_available=False,
+        definitions=DEFINITIONS,
+    )
+
+
+@router.get("/reports/products", response_model=ProductPerformance)
+async def product_performance(start: str = Query(...), end: str = Query(...), store_id: str = Query(None), p: Principal = Depends(get_principal)):
+    """Per-product and per-category performance from authoritative order lines.
+    Category names resolve from the live menu; lines whose product was since deleted
+    report category=None instead of guessing."""
+    start_d, end_d = date_range(start, end)
+    sid = await resolve_store(p, store_id, allow_all=True)
+    docs = [d for d in await find_orders(sid, start_d, end_d, sort=1)
+            if not d.get("voided") and d.get("payment_status") != "pending"]
+
+    category_of: dict[str, str | None] = {}
+    prod_ids = list({ln.get("product_id") for d in docs for ln in d["lines"] if ln.get("product_id")})
+    if prod_ids:
+        # the menu is GLOBAL (store_id null) with per-store overrides — never filter
+        # to a single store or every per-store view loses category/name resolution
+        store_filter = {} if not sid else {"$or": [{"store_id": None}, {"store_id": sid}]}
+        prods = await db.menu_products.find({**store_filter, "id": {"$in": prod_ids}}, {"_id": 0, "id": 1, "category_id": 1, "category": 1}).to_list(None)
+        # `category` (legacy) and `category_id` both carry the category id; the
+        # categories collection names them in `label` (newer) or `name` (oldest)
+        cat_ids = list({pr.get("category_id") or pr.get("category") for pr in prods if pr.get("category_id") or pr.get("category")})
+        cat_rows = await db.menu_categories.find({"id": {"$in": cat_ids}}, {"_id": 0, "id": 1, "label": 1, "name": 1}).to_list(None) if cat_ids else []
+        cats = {c["id"]: c.get("label") or c.get("name") for c in cat_rows}
+        category_of = {pr["id"]: cats.get(pr.get("category_id") or pr.get("category")) for pr in prods}
+
+    per: dict[str, dict] = {}
+    order_sets: dict[str, set] = {}
+    for d in docs:
+        for ln in d["lines"]:
+            # base name — cup size must NOT split a product into separate rows
+            base = (ln["name"].split(" · ")[0]).strip() or ln["name"]
+            rec = per.setdefault(base, {"product_id": ln.get("product_id"), "qty": 0, "revenue": 0})
+            rec["qty"] += ln["qty"]
+            rec["revenue"] += ln["qty"] * ln["unit_price"]
+            order_sets.setdefault(base, set()).add(d["id"])
+
+    # most-chosen add-ons across all lines (size labels are line metadata, not add-ons),
+    # each attributed to its addon GROUP (Level Manis / Es / Add Topping / …)
+    opt_counts: dict[str, int] = {}
+    for d in docs:
+        for ln in d["lines"]:
+            for o in ln.get("options") or []:
+                label = (o.get("label") or "").strip()
+                if label and label not in ("R", "L", "-"):
+                    opt_counts[label] = opt_counts.get(label, 0) + 1
+    scope = {"$or": [{"store_id": None}, {"store_id": sid}]}
+    opt_rows = await db.menu_options.find(scope, {"_id": 0, "label": 1, "group_id": 1}).to_list(None) if opt_counts else []
+    grp_rows = await db.menu_groups.find(scope, {"_id": 0, "id": 1, "label": 1, "name": 1}).to_list(None) if opt_rows else []
+    grp_name = {g["id"]: g.get("label") or g.get("name") or g["id"] for g in grp_rows}
+    label_to_group: dict[str, str] = {}
+    for o in opt_rows:
+        lbl = (o.get("label") or "").strip()
+        if lbl and lbl not in label_to_group:
+            label_to_group[lbl] = grp_name.get(o.get("group_id"), "(lainnya)")
+    top_options = [
+        {"group": label_to_group.get(k, "(lainnya)"), "label": k, "count": v}
+        for k, v in sorted(opt_counts.items(), key=lambda kv: -kv[1])[:15]
+    ]
+
+    rows = [
+        ProductPerf(key=k, product_id=v["product_id"], category=category_of.get(v["product_id"]),
+                    qty=v["qty"], revenue=v["revenue"], orders_count=len(order_sets[k]))
+        for k, v in per.items()
+    ]
+    by_qty = sorted(rows, key=lambda r: (-r.qty, -r.revenue))
+    by_rev = sorted(rows, key=lambda r: (-r.revenue, -r.qty))
+    low = sorted([r for r in rows if r.qty > 0], key=lambda r: (r.revenue, -r.qty))[:10]
+
+    cat_rows: dict[str, dict] = {}
+    for r in rows:
+        c = cat_rows.setdefault(r.category or "(tanpa kategori)", {"qty": 0, "revenue": 0})
+        c["qty"] += r.qty
+        c["revenue"] += r.revenue
+
+    # the FULL menu taxonomy — filter chips must list every category/group that EXISTS,
+    # not only the ones that happened to sell in this date range (otherwise newly
+    # created categories never appear in the dashboard filters)
+    all_categories = [c.get("label") or c.get("name") or c["id"] for c in await db.menu_categories.find(scope, {"_id": 0, "label": 1, "name": 1, "id": 1}).to_list(None)]
+    all_option_groups = [g.get("label") or g.get("name") or g["id"] for g in await db.menu_groups.find(scope, {"_id": 0, "label": 1, "name": 1, "id": 1}).to_list(None)]
+
+    return ProductPerformance(
+        start=start_d, end=end_d, generated_at=datetime.now(timezone.utc),
+        by_quantity=by_qty[:20], by_revenue=by_rev[:20], low_performers=low,
+        categories=[{"category": k, **v} for k, v in sorted(cat_rows.items(), key=lambda kv: -kv[1]["revenue"])],
+        top_options=top_options,
+        all_categories=all_categories,
+        all_option_groups=all_option_groups,
+        gross_profit_available=False,
+        definitions=DEFINITIONS,
+    )
 
 
 @router.get("/reports/export.csv")

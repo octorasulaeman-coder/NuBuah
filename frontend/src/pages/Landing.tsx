@@ -5,7 +5,6 @@ import { AppNav, BrandMark } from "@/components/Brand";
 import MenuPhoto from "@/components/MenuPhoto";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { buttonVariants } from "@/components/ui/button";
-import { FRUIT_TIER_LIST, POTONG_FRUIT_LIST } from "@/data/menu";
 import { STORE, mapsLink, waNumber, waOrderLink } from "@/data/store";
 import { createContext, useContext, useState } from "react";
 import { usePublicStores } from "@/lib/auth";
@@ -81,7 +80,25 @@ export default function Landing() {
   const storeList = pub.isError ? [] : (pub.data ?? []);
   const [storeSel, setStoreSel] = useState<string | null>(null);
   const cur = storeList.find((x) => x.id === storeSel) ?? storeList[0];
-  const { products, groups, categories } = useMenu(cur?.id);
+  const { products, groups: rawGroups, categories } = useMenu(cur?.id);
+  // Landing previews hardcode group ids (bowl_topping, ice, kuah, …); when a group is
+  // absent from the DB (fresh install, demo seed), EVERY `groups.<id>.options` access
+  // must degrade to an empty list instead of crashing the page.
+  const groups = new Proxy(
+    (rawGroups ?? {}) as Record<
+      string,
+      { options: { label: string; r: number; l?: number | null; soldOut?: boolean; tier?: string | null; default?: boolean }[] }
+    >,
+    { get: (t, k: string) => t[k] ?? { options: [] } },
+  );
+  // decorative fruit lists now derive from the live menu data (custom_fruit / potong_fruit groups)
+  const potongFruits = (groups["potong_fruit"]?.options ?? []).map((o) => o.label);
+  const cfOpts = groups["custom_fruit"]?.options ?? [];
+  const fruitTiers = [...new Set(cfOpts.map((o) => o.tier).filter(Boolean) as string[])].map((tier) => ({
+    tier,
+    fruits: cfOpts.filter((o) => o.tier === tier).map((o) => o.label),
+    price: cfOpts.find((o) => o.tier === tier)?.r ?? 0,
+  }));
   const smoothies = products.filter((p) => p.category === "smoothie");
   const bowls = products.filter((p) => p.category === "bowl");
   const juices = products.filter((p) => p.category === "jus" && p.id !== "js-ekonomis");
@@ -366,7 +383,7 @@ export default function Landing() {
                     <span className="text-zest">11K</span> = max 4 macam · <span className="text-zest">16K</span> = lebih dari 4 macam
                   </p>
                   <div className="mt-6 flex flex-wrap gap-2" data-testid="potong-fruit-list">
-                    {POTONG_FRUIT_LIST.map((f) => (
+                    {potongFruits.map((f) => (
                       <span key={f} className="rounded-full bg-white/15 px-3 py-1 text-sm font-medium">
                         {f}
                       </span>
@@ -400,7 +417,7 @@ export default function Landing() {
                     <span className="text-sm text-white/70">Satu buah aja? Bisa, harga buah dikali 3.</span>
                   </div>
                   <div className="mt-4 space-y-2">
-                    {FRUIT_TIER_LIST.map((t) => (
+                    {fruitTiers.map((t) => (
                       <div key={t.tier} className="flex flex-wrap items-center gap-3 rounded-full bg-white/10 px-5 py-2.5">
                         <span className="w-32 font-heading font-bold">{t.tier.split(" · ")[0]}</span>
                         <span className="flex-1 text-sm text-white/85">{t.fruits.join(" · ")}</span>

@@ -9,7 +9,14 @@ export class ApiError extends Error {
   body: unknown;
 
   constructor(status: number, body: unknown) {
-    super(`request failed with ${status}`);
+    // surface the server's message: FastAPI errors are {detail: string | [...]}
+    let message = `request failed with ${status}`;
+    if (body && typeof body === "object" && "detail" in body) {
+      const detail = (body as { detail: unknown }).detail;
+      if (typeof detail === "string") message = detail;
+      else if (Array.isArray(detail) && typeof detail[0]?.msg === "string") message = detail[0].msg;
+    }
+    super(message);
     this.name = "ApiError";
     this.status = status;
     this.body = body;
