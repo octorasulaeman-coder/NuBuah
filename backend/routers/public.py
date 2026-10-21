@@ -340,7 +340,7 @@ async def public_order(payload: PublicOrderIn, request: Request):
 
 
 @router.get("/public/orders/{order_no}", response_model=PublicOrderStatus)
-async def public_order_status(order_no: str, request: Request, phone: Optional[str] = Query(default=None, min_length=9, max_length=16)):
+async def public_order_status(order_no: str, request: Request, phone: str | None = Query(default=None, min_length=9, max_length=16)):
     check_rate(f"pubstatus:ip:{client_ip(request)}", limit=60, window_seconds=60)
     order = await db.orders.find_one({"order_no": order_no.strip().upper()}, {"_id": 0, "cashier_name": 0})
     # phone is OPTIONAL: if given it must match (still blocks guessing with a known
