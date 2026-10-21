@@ -413,12 +413,15 @@ async def list_scheduled_orders(store_id: Optional[str] = Query(None), include_c
     returns completed ones instead, so the 'Sudah diambil' tab works off one fetch."""
     sid = await resolve_store(p, store_id)
     now = datetime.now(timezone.utc)
-    status_q = {"status": COMPLETED} if include_completed else {"status": {"$nin": [COMPLETED, CANCELLED]}}
+    # include_completed=true means "the staff panel's single fetch": return BOTH active
+    # and completed orders so its client-side tabs (Baru … Sudah diambil) all work.
+    # Otherwise return only the active ones.
+    status_q = {"status": {"$nin": [COMPLETED, CANCELLED]}} if not include_completed else {}
     docs = await db.orders.find(
         {
             "store_id": sid, "fulfillment": "scheduled", "voided": {"$ne": True},
             **status_q,
-            "scheduled_for": {"$gte": now - timedelta(hours=4), "$lte": now + timedelta(hours=36)},
+            "scheduled_for": {"$gte": now - timedelta(hours=4), "$lte": now + timedelta(days=7)},
         },
         {"_id": 0},
     ).sort("scheduled_for", 1).to_list(500)
