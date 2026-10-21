@@ -11,7 +11,7 @@ import { rupiah } from "@/lib/format";
 import type { Order } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type Filter = "due" | "overdue" | "unpaid" | "done";
+type Filter = "baru" | "confirmed" | "preparing" | "ready" | "unpaid" | "overdue" | "done";
 
 const NEXT: Record<string, string> = {
   received: "confirmed",
@@ -29,10 +29,13 @@ const LABEL: Record<string, string> = {
 };
 
 const TABS: [Filter, string, string][] = [
-  ["due", "Jatuh tempo", "Dalam 30 menit ke depan — yang harus disiapkan sekarang"],
+  ["baru", "Baru", "Pesanan terjadwal yang baru masuk — belum dikonfirmasi"],
+  ["confirmed", "Dikonfirmasi", "Sudah dikonfirmasi kasir — menunggu dibuat"],
+  ["preparing", "Dibuat", "Sedang diproses di dapur"],
+  ["ready", "Siap diambil", "Sudah jadi — menunggu pelanggan ambil"],
+  ["unpaid", "Belum bayar", "Pembayaran masih pending (bayar saat ambil), status apa pun"],
   ["overdue", "Terlambat", "Jam ambil sudah lewat tapi belum selesai — perlu dicek"],
-  ["unpaid", "Belum bayar", "Pembayaran masih pending (bayar saat ambil), jam berapa pun"],
-  ["done", "Sudah diambil", "Sudah selesai diambil dalam 4 jam terakhir"],
+  ["done", "Sudah diambil", "Selesai diambil dalam 24 jam terakhir"],
 ];
 
 const pickupFmt = (iso: string) =>
@@ -41,7 +44,7 @@ const pickupFmt = (iso: string) =>
 export default function ScheduledDialog({ onClose }: { onClose: () => void }) {
   const { storeId } = useActiveStore();
   const qc = useQueryClient();
-  const [filter, setFilter] = useState<Filter>("due");
+  const [filter, setFilter] = useState<Filter>("baru");
   const q = useQuery({
     queryKey: ["scheduled-orders", storeId],
     // one fetch covers active + completed; tabs filter client-side
@@ -61,10 +64,23 @@ export default function ScheduledDialog({ onClose }: { onClose: () => void }) {
   const all = q.data ?? [];
   const rows = all.filter((o) => {
     const t = o.scheduled_for ? new Date(o.scheduled_for).getTime() : now;
-    if (filter === "due") return t - now <= 30 * 60_000 && t >= now - 60_000 && o.status !== "completed";
-    if (filter === "overdue") return t < now - 60_000 && o.status !== "completed";
-    if (filter === "unpaid") return o.payment_status !== "paid";
-    return o.status === "completed";
+    const st = o.status ?? "received";
+    switch (filter) {
+      case "baru":
+        return st === "received";
+      case "confirmed":
+        return st === "confirmed";
+      case "preparing":
+        return st === "preparing";
+      case "ready":
+        return st === "ready";
+      case "unpaid":
+        return o.payment_status !== "paid" && st !== "completed" && st !== "cancelled";
+      case "overdue":
+        return t < now - 60_000 && st !== "completed" && st !== "cancelled";
+      default:
+        return st === "completed";
+    }
   });
   const keterangan = TABS.find(([id]) => id === filter)?.[2] ?? "";
 
@@ -74,7 +90,7 @@ export default function ScheduledDialog({ onClose }: { onClose: () => void }) {
         <h2 className="font-heading text-xl font-bold text-teal-deep">Pesanan terjadwal</h2>
         <button type="button" onClick={onClose} className="text-sm text-muted-foreground">Tutup ✕</button>
       </div>
-      <div className="flex gap-1 rounded-full bg-mint p-1" role="tablist" aria-label="Filter">
+      <div className="flex flex-wrap gap-1 rounded-2xl bg-mint p-1" role="tablist" aria-label="Filter">
         {TABS.map(([id, label]) => (
           <button
             key={id}
