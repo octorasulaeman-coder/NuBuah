@@ -25,7 +25,7 @@ DEFINITIONS = {
     "gross_sales": "sum(total + discount_amount) over qualifying orders (before discounts)",
     "net_sales": "sum(total) over qualifying orders (after discounts, before refunds)",
     "discounts_total": "sum(discount_amount) over qualifying orders (never double-counted: stored once per order)",
-    "refunds_total": "sum(refunded amounts) of payment attempts with refund_status == 'refunded' whose order is in range",
+    "refunds_total": "sum(amount) of refund ledger rows with status == 'succeeded' whose order is in range (legacy attempts without ledger rows use their refunded_amount summary once)",
     "net_after_refunds": "net_sales - refunds_total",
     "average_order_value": "net_sales / qualifying_orders",
     "voided_orders": "excluded from every sales figure; counted separately",
@@ -113,16 +113,69 @@ async def build_closing(p: Principal, start: Optional[str], end: Optional[str], 
     )
 
 
+async def _successful_refund_rows_for_orders(order_ids: list[str]) -> dict[str, int]:
+    """Authoritative successful refunds from the durable refund ledger, mapped by order.
+
+    Legacy attempts have summary fields but no refund ledger rows. They are included
+    only when the attempt has no ledger rows, which avoids double-counting after the
+    refund accounting migration while preserving historical totals.
+    """
+    if not order_ids:
+        return {}
+    ledger_rows = await db.refunds.find(
+        {"order_id": {"$in": order_ids}, "status": "succeeded"},
+        {"_id": 0, "order_id": 1, "amount": 1, "attempt_id": 1},
+    ).to_list(10000)
+    by_order: dict[str, int] = {}
+    attempts_with_ledger: set[str] = set()
+    for row in ledger_rows:
+        by_order[row["order_id"]] = by_order.get(row["order_id"], 0) + int(row.get("amount") or 0)
+        if row.get("attempt_id"):
+            attempts_with_ledger.add(row["attempt_id"])
+
+    legacy_attempts = await db.payment_attempts.find(
+        {"order_id": {"$in": order_ids}, "$or": [{"refunded_amount": {"$gt": 0}}, {"refund_status": "refunded"}]},
+        {"_id": 0, "id": 1, "order_id": 1, "amount": 1, "refunded_amount": 1, "refund_status": 1},
+    ).to_list(10000)
+    for attempt in legacy_attempts:
+        if attempt["id"] in attempts_with_ledger:
+            continue
+        amount = int(attempt.get("refunded_amount") or 0)
+        if amount <= 0 and attempt.get("refund_status") == "refunded":
+            amount = int(attempt.get("amount") or 0)
+        if amount > 0:
+            by_order[attempt["order_id"]] = by_order.get(attempt["order_id"], 0) + amount
+    return by_order
+
+
 async def _refunds_for_orders(order_ids: list[str]) -> tuple[int, int]:
-    """(count, total) of refunded amounts on payment attempts tied to these orders."""
+    """(count, total) of successful refunded amounts tied to these orders.
+
+    ``count`` follows the existing report contract: refunded payment attempts (or refund
+    ledger rows for attempts using the new ledger), not distinct orders.
+    """
+    rows = await _successful_refund_rows_for_orders(order_ids)
     if not order_ids:
         return 0, 0
-    docs = await db.payment_attempts.find(
-        {"order_id": {"$in": order_ids}, "refund_status": "refunded"},
-        {"_id": 0, "amount": 1, "refunded_amount": 1},
+    ledger_rows = await db.refunds.find(
+        {"order_id": {"$in": order_ids}, "status": "succeeded"},
+        {"_id": 0, "attempt_id": 1},
     ).to_list(10000)
-    total = sum(d.get("refunded_amount") or d.get("amount", 0) for d in docs)
-    return len(docs), total
+    attempts_with_ledger = {r.get("attempt_id") for r in ledger_rows if r.get("attempt_id")}
+    legacy_attempts = await db.payment_attempts.find(
+        {"order_id": {"$in": order_ids}, "$or": [{"refunded_amount": {"$gt": 0}}, {"refund_status": "refunded"}]},
+        {"_id": 0, "id": 1, "refunded_amount": 1, "refund_status": 1},
+    ).to_list(10000)
+    legacy_count = 0
+    for attempt in legacy_attempts:
+        if attempt["id"] in attempts_with_ledger:
+            continue
+        amount = int(attempt.get("refunded_amount") or 0)
+        if amount <= 0 and attempt.get("refund_status") == "refunded":
+            amount = 1  # legacy full-refund marker; count it even if the summary amount is absent
+        if amount > 0:
+            legacy_count += 1
+    return len(ledger_rows) + legacy_count, sum(rows.values())
 
 
 def _safe(v: object) -> object:
@@ -166,15 +219,12 @@ async def dashboard(start: str = Query(...), end: str = Query(...), store_id: st
         day["revenue"] += d["total"]
         day["orders"] += 1
     if refunds_total:
-        refunded = await db.payment_attempts.find(
-            {"order_id": {"$in": [d["id"] for d in docs]}, "refund_status": "refunded"},
-            {"_id": 0, "order_id": 1, "amount": 1, "refunded_amount": 1},
-        ).to_list(10000)
+        refunded_by_order = await _successful_refund_rows_for_orders([d["id"] for d in docs])
         day_of = {d["id"]: d["business_date"] for d in docs}
-        for r in refunded:
-            dd = day_of.get(r["order_id"])
+        for order_id, refunded_amount in refunded_by_order.items():
+            dd = day_of.get(order_id)
             if dd in by_day:
-                by_day[dd]["refunds_total"] += r.get("refunded_amount") or r.get("amount", 0)
+                by_day[dd]["refunds_total"] += refunded_amount
 
     return Dashboard(
         start=start_d, end=end_d, generated_at=datetime.now(timezone.utc),

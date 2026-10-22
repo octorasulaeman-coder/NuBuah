@@ -1,9 +1,10 @@
 """Mock payment provider — development and automated tests ONLY.
 
 Simulates the full provider surface: creation, pending status, success/failure,
-expiration, duplicate and delayed notifications, timeouts, and ambiguous outcomes
-(selected via MOCK_PAYMENT_BEHAVIOR). Webhook "verification" uses an HMAC token so the
-whole webhook pipeline (including REJECTION of bad signatures) is exercised for real.
+expiration, duplicate and delayed notifications, timeouts, ambiguous outcomes, and
+refund success/failure/timeout/ambiguous (selected via MOCK_PAYMENT_BEHAVIOR and
+MOCK_REFUND_BEHAVIOR). Webhook "verification" uses an HMAC token so the whole webhook
+pipeline (including REJECTION of bad signatures) is exercised for real.
 
 GUARANTEE: this adapter can never confirm a production payment — it never contacts any
 network and lib/payments/config.py refuses provider=mock when mode=production.
@@ -18,16 +19,21 @@ from typing import Optional
 
 from lib.payments.base import (
     CreateRequest, CreateResult, PaymentProviderAdapter, ProviderStatus,
-    VerifiedNotification,
+    RefundResult, RefundStatus, VerifiedNotification,
 )
 
 BEHAVIOR = os.environ.get("MOCK_PAYMENT_BEHAVIOR", "success")  # success|failure|expire|timeout|ambiguous
+REFUND_BEHAVIOR = os.environ.get("MOCK_REFUND_BEHAVIOR", "success")  # success|failure|timeout|ambiguous
 
 # provider vocabulary (deliberately unlike our internal names — exercises normalize_status)
 RAW_PENDING = "MOCK_CREATED"
 RAW_PAID = "MOCK_SETTLED"
 RAW_FAILED = "MOCK_DECLINED"
 RAW_UNKNOWN = "MOCK_WHAT"
+
+_REFUND_SUCCEEDED = "MOCK_REFUND_SUCCEEDED"
+_REFUND_FAILED = "MOCK_REFUND_FAILED"
+_REFUND_PENDING = "MOCK_REFUND_PENDING"
 
 
 class MockProvider(PaymentProviderAdapter):
@@ -104,9 +110,29 @@ class MockProvider(PaymentProviderAdapter):
             RAW_PENDING: PENDING,
         }.get(raw_status)  # unknown vocabulary -> None -> service flags needs_review
 
-    async def request_refund(self, provider_ref: str, amount: int, reason: str):  # noqa: ARG002
-        from lib.payments.base import RefundResult
-        return RefundResult(ok=True, refund_ref=f"MOCKRF-{provider_ref[-8:]}")
+    # -- refunds (dev/test simulation only; never real money movement) ----
+    @staticmethod
+    def _refund_ref(provider_ref: str, idempotency_key: Optional[str]) -> str:
+        material = idempotency_key or provider_ref
+        return f"MOCKRF-{provider_ref[-8:]}-{hashlib.sha256(material.encode()).hexdigest()[:8]}"
+
+    async def request_refund(self, provider_ref: str, amount: int, reason: str,
+                             idempotency_key: Optional[str] = None):  # noqa: ARG002
+        if REFUND_BEHAVIOR == "failure":
+            return RefundResult(ok=False, failure_code="rejected")
+        refund_ref = self._refund_ref(provider_ref, idempotency_key)
+        if REFUND_BEHAVIOR in ("timeout", "ambiguous"):
+            # the provider may or may not have created the refund; the caller must keep
+            # the local record ambiguous and reconcile instead of issuing another refund
+            return RefundResult(ok=False, refund_ref=refund_ref, failure_code="timeout")
+        return RefundResult(ok=True, refund_ref=refund_ref)
+
+    async def get_refund_status(self, provider_ref: str, refund_ref: Optional[str] = None) -> RefundStatus:
+        if REFUND_BEHAVIOR == "failure":
+            return RefundStatus(status="failed", refund_ref=refund_ref, failure_code="rejected")
+        if REFUND_BEHAVIOR in ("timeout", "ambiguous"):
+            return RefundStatus(status="pending", refund_ref=refund_ref)
+        return RefundStatus(status="succeeded", refund_ref=refund_ref or self._refund_ref(provider_ref, None))
 
 
 def outcome_for_behavior() -> str:
