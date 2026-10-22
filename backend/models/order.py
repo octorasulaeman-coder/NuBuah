@@ -76,6 +76,14 @@ class PublicOrderStatus(BaseModel):
     scheduled_for: Optional[datetime] = None  # UTC slot start, null = immediate
     status: str = "received"  # so customers can watch preparation progress
     points_earned: int = 0  # loyalty points this order earned (computed, shown once paid)
+    # Customer-safe receipt calculation breakdown. No internal IDs or provider refs.
+    subtotal: int = 0
+    discount_amount: int = 0
+    discount_note: Optional[str] = None
+    coupon_code: Optional[str] = None
+    coupon_amount: int = 0
+    points_redeemed: int = 0
+    redeem_value_amount: int = 0
 
 
 class OrderCreate(BaseModel):

@@ -37,6 +37,8 @@ function StoreDialog({ store, onClose }: { store: Store | null | "new"; onClose:
   const [phone, setPhone] = useState(s?.phone ?? "");
   const [pin, setPin] = useState("");
   const [approvalPin, setApprovalPin] = useState("");
+  const [acceptingOrders, setAcceptingOrders] = useState(s?.accepting_orders ?? true);
+  const [acceptingMessage, setAcceptingMessage] = useState(s?.accepting_orders_message ?? "");
   const save = useMutation({
     mutationFn: () => {
       const body: StoreIn = {
@@ -46,6 +48,8 @@ function StoreDialog({ store, onClose }: { store: Store | null | "new"; onClose:
         phone,
         pin: pin || null,
         approval_pin: approvalPin || null,
+        accepting_orders: acceptingOrders,
+        accepting_orders_message: acceptingMessage.trim() || null,
       };
       return s ? apiPut<Store>(`/stores/${s.id}`, body) : apiPost<Store>("/stores", body);
     },
@@ -99,6 +103,31 @@ function StoreDialog({ store, onClose }: { store: Store | null | "new"; onClose:
                 data-testid="store-approval-pin-input"
               />
             </div>
+          </div>
+          <div className="space-y-2 rounded-2xl border border-slate-200 p-3">
+            <label className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-700">
+              <span>Terima pesanan self-checkout</span>
+              <input
+                type="checkbox"
+                checked={acceptingOrders}
+                onChange={(e) => setAcceptingOrders(e.target.checked)}
+                className="h-5 w-5 accent-emerald-600"
+                data-testid="store-accepting-orders-input"
+              />
+            </label>
+            {!acceptingOrders && (
+              <div className="space-y-1">
+                <Label htmlFor="st-accepting-message">Pesan untuk customer (opsional)</Label>
+                <Textarea
+                  id="st-accepting-message"
+                  rows={2}
+                  value={acceptingMessage}
+                  onChange={(e) => setAcceptingMessage(e.target.value)}
+                  placeholder="Contoh: Pemesanan online ditutup sementara karena toko sedang penuh."
+                  data-testid="store-accepting-message-input"
+                />
+              </div>
+            )}
           </div>
           <p className="text-xs text-muted-foreground">
             Diskon kasir di atas {s?.discount_cap ?? 10}% perlu PIN approval owner. Ubah batasnya dengan env <code>DISCOUNT_CAP_PCT</code>.

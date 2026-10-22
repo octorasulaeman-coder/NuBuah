@@ -40,8 +40,10 @@ def _idem_indexes():
         IndexModel([("store_id", ASCENDING), ("provider", ASCENDING), ("idempotency_key", ASCENDING)],
                    name="pay_store_provider_idem", unique=True,
                    partialFilterExpression={"idempotency_key": {"$type": "string"}}),
-        # permissive single-field index for the pre-P3 query shape; kept for migration
-        IndexModel([("idempotency_key", ASCENDING)], name="pay_idem",
+        # legacy single-field index kept for the pre-P3 query shape. Many deployments
+        # already built this as unique; keeping that form avoids startup index conflicts.
+        # The store-scoped pay_store_idem index remains the authoritative idempotency gate.
+        IndexModel([("idempotency_key", ASCENDING)], name="pay_idem", unique=True,
                    partialFilterExpression={"idempotency_key": {"$type": "string"}}),
         IndexModel([("order_id", ASCENDING)], name="pay_order"),
         IndexModel([("store_id", ASCENDING), ("status", ASCENDING)], name="pay_store_status"),
@@ -51,7 +53,10 @@ def _idem_indexes():
 COLLECTION_INDEXES: dict[str, list[IndexModel]] = {
     "stores": [
         IndexModel([("id", ASCENDING)], name="store_id", unique=True),
-        IndexModel([("slug", ASCENDING)], name="store_slug", unique=True),
+        # Legacy deployments may not have slug populated. Do not let null rows block
+        # startup; valid slugs remain unique.
+        IndexModel([("slug", ASCENDING)], name="store_slug", unique=True,
+                   partialFilterExpression={"slug": {"$type": "string"}}),
     ],
     "users": [
         IndexModel([("id", ASCENDING)], name="user_id", unique=True),
@@ -106,7 +111,8 @@ COLLECTION_INDEXES: dict[str, list[IndexModel]] = {
         IndexModel([("code", ASCENDING)], name="coupon_code", unique=True),
     ],
     "coupon_redemptions": [
-        IndexModel([("id", ASCENDING)], name="redeem_id", unique=True),
+        IndexModel([("id", ASCENDING)], name="redeem_id", unique=True,
+                   partialFilterExpression={"id": {"$type": "string"}}),
         # one redemption per coupon+order — concurrent checkouts cannot double-redeem
         IndexModel([("coupon_id", ASCENDING), ("order_id", ASCENDING)], name="redeem_coupon_order", unique=True),
         IndexModel([("customer_phone", ASCENDING)], name="redeem_phone"),
@@ -114,8 +120,11 @@ COLLECTION_INDEXES: dict[str, list[IndexModel]] = {
     ],
     "points_ledger": [
         IndexModel([("id", ASCENDING)], name="points_id", unique=True),
-        # one earn and one reversal per order — retries cannot award twice
-        IndexModel([("order_id", ASCENDING), ("entry_type", ASCENDING)], name="points_order_entry", unique=True),
+        # one earn and one reversal per order — retries cannot award twice. The partial
+        # filter ignores legacy rows with null order_id/entry_type so a historical data
+        # blemish cannot block creation of the uniqueness guarantee for valid rows.
+        IndexModel([("order_id", ASCENDING), ("entry_type", ASCENDING)], name="points_order_entry", unique=True,
+                   partialFilterExpression={"order_id": {"$type": "string"}, "entry_type": {"$type": "string"}}),
         IndexModel([("customer_phone", ASCENDING), ("created_at", ASCENDING)], name="points_phone_time"),
     ],
     "closing_reports": [
@@ -129,14 +138,63 @@ COLLECTION_INDEXES: dict[str, list[IndexModel]] = {
 }
 
 
+def _freeze_index_value(value):
+    """Convert Mongo SON/dict/list values into hashable, comparable Python shapes."""
+    if hasattr(value, "items"):
+        return tuple((str(k), _freeze_index_value(v)) for k, v in value.items())
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_index_value(v) for v in value)
+    return value
+
+
+def _index_signature(index) -> tuple:
+    """Comparable shape for an existing Mongo index or an IndexModel.
+
+    Name is intentionally ignored: older deployments may have equivalent indexes under
+    Mongo's auto-generated names (`id_1`, etc.). We only need to create indexes whose
+    key/options are genuinely missing.
+    """
+    doc = index.document if hasattr(index, "document") else dict(index)
+    return (
+        _freeze_index_value(doc.get("key", {})),
+        bool(doc.get("unique", False)),
+        bool(doc.get("sparse", False)),
+        _freeze_index_value(doc.get("partialFilterExpression")),
+    )
+
+
+async def _indexes_to_create(collection: str, desired: list[IndexModel]) -> list[IndexModel]:
+    existing_docs = [doc async for doc in db[collection].list_indexes()]
+    existing = {_index_signature(doc) for doc in existing_docs}
+    by_name = {doc.get("name"): doc for doc in existing_docs}
+    to_create: list[IndexModel] = []
+    for index in desired:
+        signature = _index_signature(index)
+        if signature in existing:
+            continue
+        name = index.document.get("name")
+        same_name = by_name.get(name)
+        # Mongo can leave a failed legacy index build under the same name (observed for
+        # points_order_entry on old null rows). Replace only that known safe startup case.
+        if same_name and collection == "points_ledger" and name == "points_order_entry":
+            await db[collection].drop_index(name)
+        to_create.append(index)
+    return to_create
+
+
 async def ensure_indexes() -> None:
-    """Create all application indexes. Failure of a payment-critical index is logged at
-    ERROR level (visible in server logs) rather than silently skipped."""
+    """Create all application indexes that are genuinely missing.
+
+    Equivalent existing indexes with different names are skipped, avoiding noisy
+    `IndexOptionsConflict` startup warnings on databases created by older versions.
+    """
+    import logging
+    log = logging.getLogger("nubuah.db")
     for collection, indexes in COLLECTION_INDEXES.items():
         try:
-            await db[collection].create_indexes(indexes)
+            missing = await _indexes_to_create(collection, indexes)
+            if missing:
+                await db[collection].create_indexes(missing)
         except Exception as exc:  # startup logging — server.py logs a warning
             critical = collection in {"payment_attempts", "payment_events", "refunds"}
-            import logging
-            log = logging.getLogger("nubuah.db")
             (log.error if critical else log.warning)("index creation failed for %s: %s", collection, exc)

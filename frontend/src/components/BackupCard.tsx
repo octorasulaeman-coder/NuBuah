@@ -1,8 +1,9 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { DatabaseBackup, Download } from "lucide-react";
+import { DatabaseBackup, Download, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { apiGet, apiPost } from "@/lib/api";
+import { apiGet, apiPost, apiUpload } from "@/lib/api";
 import type { BackupInfo } from "@/lib/types";
 
 const kb = (n: number) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
@@ -18,6 +19,24 @@ export default function BackupCard() {
       toast.success("Backup selesai");
     },
     onError: () => toast.error("Backup gagal"),
+  });
+  const [restoreFile, setRestoreFile] = useState<File | null>(null);
+  const [restoreConfirmed, setRestoreConfirmed] = useState(false);
+  const restore = useMutation({
+    mutationFn: async (file: File) =>
+      apiUpload<{ restored: Record<string, number>; safety_backup: string; message: string }>("/backup/restore", file),
+    onSuccess: (result) => {
+      const total = Object.values(result.restored).reduce((sum, count) => sum + count, 0);
+      qc.invalidateQueries({ queryKey: ["backups"] });
+      qc.invalidateQueries({ queryKey: ["stores"] });
+      qc.invalidateQueries({ queryKey: ["products"] });
+      qc.invalidateQueries({ queryKey: ["customers"] });
+      qc.invalidateQueries({ queryKey: ["orders"] });
+      toast.success(`Restore selesai: ${total} dokumen. Safety backup: ${result.safety_backup}`);
+      setRestoreFile(null);
+      setRestoreConfirmed(false);
+    },
+    onError: (e: Error) => toast.error(e.message || "Restore gagal"),
   });
   const info = q.data;
   const latest = info?.backups[0];
@@ -45,6 +64,52 @@ export default function BackupCard() {
         <Button className="rounded-full bg-teal-brand hover:bg-teal-deep" disabled={run.isPending} onClick={() => run.mutate()} data-testid="backup-run-button">
           {run.isPending ? "Membuat backup..." : "Backup sekarang"}
         </Button>
+      </div>
+      <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="font-heading text-lg font-extrabold italic text-amber-800">Restore backup</h3>
+            <p className="mt-1 max-w-2xl text-sm text-amber-700">
+              Fitur ini hanya untuk owner. Restore akan mengganti data saat ini dengan isi backup
+              <span className="font-mono"> .json.gz</span>. Sistem akan membuat safety backup baru sebelum restore.
+            </p>
+          </div>
+          <label className="inline-flex cursor-pointer items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-bold text-amber-800 shadow-sm">
+            <Upload className="size-4" />
+            {restoreFile ? restoreFile.name : "Pilih file .json.gz"}
+            <input
+              type="file"
+              accept=".gz,application/gzip"
+              className="hidden"
+              onChange={(e) => {
+                setRestoreFile(e.target.files?.[0] ?? null);
+                setRestoreConfirmed(false);
+              }}
+              data-testid="backup-restore-file"
+            />
+          </label>
+        </div>
+        {restoreFile && (
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-sm font-semibold text-amber-800">
+              <input
+                type="checkbox"
+                checked={restoreConfirmed}
+                onChange={(e) => setRestoreConfirmed(e.target.checked)}
+                data-testid="backup-restore-confirm"
+              />
+              Saya paham data saat ini akan diganti dari backup ini.
+            </label>
+            <Button
+              className="rounded-full bg-amber-700 hover:bg-amber-800"
+              disabled={!restoreConfirmed || restore.isPending}
+              onClick={() => restoreFile && restore.mutate(restoreFile)}
+              data-testid="backup-restore-button"
+            >
+              {restore.isPending ? "Restore berjalan..." : "Restore sekarang"}
+            </Button>
+          </div>
+        )}
       </div>
       {!!info?.backups.length && (
         <ul className="mt-3 divide-y divide-border text-sm">

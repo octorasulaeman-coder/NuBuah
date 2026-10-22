@@ -32,6 +32,8 @@ class StoreIn(BaseModel):
     phone: str = Field(default="", max_length=30)
     pin: Optional[str] = Field(default=None, min_length=4, max_length=6, pattern=r"^\d+$")
     approval_pin: Optional[str] = Field(default=None, min_length=4, max_length=6, pattern=r"^\d+$")  # owner PIN that approves over-cap cashier discounts
+    accepting_orders: bool = True
+    accepting_orders_message: Optional[str] = Field(default=None, max_length=200)
 
 
 class StoreUpdate(BaseModel):
@@ -41,6 +43,8 @@ class StoreUpdate(BaseModel):
     phone: Optional[str] = Field(default=None, max_length=30)
     pin: Optional[str] = Field(default=None, min_length=4, max_length=6, pattern=r"^\d+$")
     approval_pin: Optional[str] = Field(default=None, min_length=4, max_length=6, pattern=r"^\d+$")
+    accepting_orders: Optional[bool] = None
+    accepting_orders_message: Optional[str] = Field(default=None, max_length=200)
 
 
 class PublicStore(BaseModel):
@@ -49,6 +53,8 @@ class PublicStore(BaseModel):
     code: str
     address_lines: list[str]
     phone: str
+    accepting_orders: bool = True
+    accepting_orders_message: Optional[str] = None
 
 
 class Store(PublicStore):

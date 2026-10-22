@@ -25,7 +25,13 @@ def _require_owner(p: Principal) -> None:
 
 
 @router.get("/customers", response_model=list[Customer])
-async def list_customers(search: str = Query(default="", max_length=60), store_id: str = Query(None), p: Principal = Depends(get_principal)):
+async def list_customers(
+    search: str = Query(default="", max_length=60),
+    store_id: str = Query(None),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    p: Principal = Depends(get_principal),
+):
     sid = await resolve_store(p, store_id)
     query: dict = {"store_id": sid}
     if search.strip():
@@ -35,7 +41,7 @@ async def list_customers(search: str = Query(default="", max_length=60), store_i
             {"name": {"$regex": needle, "$options": "i"}},
             {"member_no": {"$regex": needle, "$options": "i"}},
         ]
-    docs = await db.customers.find(query, {"_id": 0}).sort("last_order_at", -1).limit(100).to_list(100)
+    docs = await db.customers.find(query, {"_id": 0}).sort("last_order_at", -1).skip(offset).limit(limit).to_list(limit)
     return [Customer(**d) for d in docs]
 
 
@@ -85,6 +91,123 @@ async def update_customer(cid: str, payload: CustomerUpdateIn, p: Principal = De
     await audit("customer.updated", p, store_id=doc["store_id"], detail={"customer_id": cid, "changes": {k: v for k, v in changes.items() if k != "updated_at"}})
     updated = await db.customers.find_one({"id": cid}, {"_id": 0})
     return Customer(**updated)
+
+
+@router.delete("/customers/{cid}")
+async def delete_customer(
+    cid: str,
+    mode: str = Query(default="anonymize", pattern="^(anonymize|purge)$"),
+    confirm_phone: Optional[str] = Query(default=None, max_length=32),
+    p: Principal = Depends(get_principal),
+):
+    """Owner-only customer removal.
+
+    `anonymize` preserves financial/audit rows but removes customer PII and points.
+    `purge` permanently removes the customer and related operational rows; it requires
+    typing the customer's current phone number and always creates a safety backup first.
+    """
+    _require_owner(p)
+    from datetime import datetime, timezone
+
+    doc = await db.customers.find_one({"id": cid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    sid = await resolve_store(p, doc["store_id"])
+    phone = doc.get("phone") or ""
+    now = datetime.now(timezone.utc)
+
+    orders = await db.orders.find(
+        {"store_id": sid, "customer_phone": phone},
+        {"_id": 0, "id": 1, "order_no": 1},
+    ).to_list(5000)
+    order_ids = [o["id"] for o in orders]
+
+    if mode == "anonymize":
+        token = f"deleted-{cid}"
+        await db.customers.update_one({"id": cid}, {"$set": {
+            "name": "Pelanggan terhapus",
+            "phone": token,
+            "member_no": None,
+            "is_member": False,
+            "points": 0,
+            "marketing_opt_in": False,
+            "updated_at": now,
+        }})
+        if order_ids:
+            await db.orders.update_many(
+                {"store_id": sid, "customer_phone": phone},
+                {"$set": {"customer_name": "Pelanggan terhapus", "customer_phone": token, "member_no": None, "updated_at": now}},
+            )
+        if phone:
+            await db.coupon_redemptions.update_many(
+                {"store_id": sid, "customer_phone": phone},
+                {"$set": {"customer_phone": token, "updated_at": now}},
+            )
+            await db.points_ledger.update_many(
+                {"store_id": sid, "customer_phone": phone},
+                {"$set": {"customer_phone": token, "updated_at": now}},
+            )
+        await audit("customer.anonymized", p, store_id=sid, detail={
+            "customer_id": cid,
+            "orders_anonymized": len(order_ids),
+        })
+        return {
+            "deleted": False,
+            "anonymized": True,
+            "safety_backup": None,
+            "counts": {"orders_anonymized": len(order_ids)},
+        }
+
+    if not confirm_phone or confirm_phone.strip() != phone:
+        raise HTTPException(status_code=400, detail="Konfirmasi nomor HP tidak cocok")
+
+    from lib.backup import create_backup
+    safety = await create_backup()
+
+    counts: dict[str, int] = {"orders": len(order_ids)}
+    attempts = await db.payment_attempts.find(
+        {"store_id": sid, "order_id": {"$in": order_ids}},
+        {"_id": 0, "id": 1, "provider_ref": 1},
+    ).to_list(5000) if order_ids else []
+    attempt_ids = [a["id"] for a in attempts]
+    provider_refs = [a["provider_ref"] for a in attempts if a.get("provider_ref")]
+
+    if attempt_ids:
+        r = await db.refunds.delete_many({"$or": [{"attempt_id": {"$in": attempt_ids}}, {"order_id": {"$in": order_ids}}]})
+        counts["refunds"] = int(r.deleted_count)
+    if order_ids or provider_refs:
+        event_filter: dict = {"$or": []}
+        if order_ids:
+            event_filter["$or"].append({"order_id": {"$in": order_ids}})
+        if provider_refs:
+            event_filter["$or"].append({"provider_ref": {"$in": provider_refs}})
+        r = await db.payment_events.delete_many(event_filter)
+        counts["payment_events"] = int(r.deleted_count)
+    if attempt_ids:
+        r = await db.payment_attempts.delete_many({"id": {"$in": attempt_ids}})
+        counts["payment_attempts"] = int(r.deleted_count)
+    if order_ids:
+        r = await db.orders.delete_many({"id": {"$in": order_ids}})
+        counts["orders"] = int(r.deleted_count)
+    if phone:
+        r = await db.coupon_redemptions.delete_many({"store_id": sid, "customer_phone": phone})
+        counts["coupon_redemptions"] = int(r.deleted_count)
+    r = await db.points_ledger.delete_many({"$or": [{"customer_id": cid}, {"customer_phone": phone}]})
+    counts["points_ledger"] = int(r.deleted_count)
+    r = await db.customers.delete_one({"id": cid})
+    counts["customers"] = int(r.deleted_count)
+
+    await audit("customer.purged", p, store_id=sid, detail={
+        "customer_id": cid,
+        "safety_backup": safety["name"],
+        "counts": counts,
+    })
+    return {
+        "deleted": True,
+        "anonymized": False,
+        "safety_backup": safety["name"],
+        "counts": counts,
+    }
 
 
 @router.post("/customers/{cid}/adjust", response_model=Customer)

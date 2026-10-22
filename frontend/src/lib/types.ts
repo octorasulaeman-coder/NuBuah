@@ -132,6 +132,7 @@ export interface PublicScheduleInfo {
   slot_minutes: number;
   lead_time_minutes: number;
   max_days_ahead: number;
+  is_open_now?: boolean;
   days: { date: string; open: boolean; reason: string | null }[];
 }
 
@@ -240,6 +241,8 @@ export interface PublicStoreInfo {
   code: string;
   address_lines: string[];
   phone: string;
+  accepting_orders?: boolean;
+  accepting_orders_message?: string | null;
 }
 
 // --- unified, fully-editable menu (data-driven; see scripts/migrate_menu_to_db.py) ---
@@ -323,6 +326,13 @@ export interface PublicOrderStatus {
   pay_at_pickup?: boolean;
   status?: string; // received|confirmed|preparing|ready|completed|cancelled
   points_earned?: number; // loyalty points this order earned (once paid)
+  subtotal?: number;
+  discount_amount?: number;
+  discount_note?: string | null;
+  coupon_code?: string | null;
+  coupon_amount?: number;
+  points_redeemed?: number;
+  redeem_value_amount?: number;
 }
 export interface PaymentAttemptPublic {
   id: string;
@@ -435,6 +445,8 @@ export interface PublicStore {
   code: string;
   address_lines: string[];
   phone: string;
+  accepting_orders?: boolean;
+  accepting_orders_message?: string | null;
 }
 
 export interface Store extends PublicStore {
@@ -451,6 +463,8 @@ export interface StoreIn {
   phone: string;
   pin: string | null;
   approval_pin?: string | null; // owner PIN that approves over-cap cashier discounts
+  accepting_orders?: boolean;
+  accepting_orders_message?: string | null;
 }
 
 export type StoreUpdate = Partial<StoreIn>;

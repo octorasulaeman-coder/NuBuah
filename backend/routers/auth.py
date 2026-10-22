@@ -31,10 +31,11 @@ def discount_cap_pct() -> int:
 def _store(d: dict) -> Store:
     # Tolerant of legacy store docs missing fields (e.g. created_at on data restored from an
     # old backup): one bad doc must not 500 the whole store list or a create response.
-    data = {k: d.get(k) for k in ("id", "name", "code", "address_lines", "phone", "created_at")}
+    data = {k: d.get(k) for k in ("id", "name", "code", "address_lines", "phone", "created_at", "accepting_orders", "accepting_orders_message")}
     data["created_at"] = data["created_at"] or datetime.now(timezone.utc)
     data["address_lines"] = data["address_lines"] or []
     data["phone"] = data["phone"] or ""
+    data["accepting_orders"] = data["accepting_orders"] if data["accepting_orders"] is not None else True
     return Store(**data, has_pin=bool(d.get("pin_hash")), has_approval_pin=bool(d.get("approval_pin_hash")), discount_cap=discount_cap_pct())
 
 
@@ -118,7 +119,18 @@ async def change_my_password(payload: PasswordChange, request: Request, response
 @router.get("/public/stores", response_model=list[PublicStore])
 async def public_stores():
     docs = await db.stores.find({}, {"_id": 0, "pin_hash": 0}).sort("created_at", 1).to_list(200)
-    return [PublicStore(**{k: d[k] for k in ("id", "name", "code", "address_lines", "phone")}) for d in docs]
+    return [
+        PublicStore(
+            id=d["id"],
+            name=d["name"],
+            code=d["code"],
+            address_lines=d.get("address_lines") or [],
+            phone=d.get("phone") or "",
+            accepting_orders=d.get("accepting_orders", True),
+            accepting_orders_message=d.get("accepting_orders_message"),
+        )
+        for d in docs
+    ]
 
 
 @router.get("/stores", response_model=list[Store])
@@ -144,6 +156,8 @@ async def create_store(payload: StoreIn, p: Principal = Depends(require_owner)):
         "phone": payload.phone.strip(),
         "pin_hash": hash_secret(payload.pin) if payload.pin else None,
         "approval_pin_hash": hash_secret(payload.approval_pin) if payload.approval_pin else None,
+        "accepting_orders": bool(payload.accepting_orders),
+        "accepting_orders_message": payload.accepting_orders_message.strip() if payload.accepting_orders_message else None,
         "pin_version": 1,
         "created_at": datetime.now(timezone.utc),
     }
@@ -162,6 +176,9 @@ async def update_store(id: str, payload: StoreUpdate, p: Principal = Depends(req
         raise HTTPException(status_code=409, detail="Kode toko sudah dipakai")
     if "address_lines" in upd:
         upd["address_lines"] = [a.strip() for a in upd["address_lines"] if a.strip()]
+    if "accepting_orders_message" in upd:
+        message = (upd.get("accepting_orders_message") or "").strip()
+        upd["accepting_orders_message"] = message or None
     inc = {}
     if "pin" in upd:
         upd["pin_hash"] = hash_secret(upd.pop("pin"))

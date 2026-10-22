@@ -18,7 +18,8 @@ from lib.orderflow import (  # noqa: E402
 )
 from lib.scheduling import (  # noqa: E402
     R_CLOSED, R_LEAD_TIME, R_NOT_SLOT, R_PAST, R_TOO_FAR, ScheduleError,
-    build_day_slots, normalize_schedule, upcoming_days, validate_requested_slot,
+    build_day_slots, normalize_schedule, store_is_open_now, upcoming_days,
+    validate_requested_slot,
 )
 
 TZ = ZoneInfo("Asia/Jakarta")
@@ -169,3 +170,36 @@ class TestOrderFlow:
             assert_transition(RECEIVED, COMPLETED)
         with _pytest.raises(ValueError):
             assert_transition(RECEIVED, "bogus")
+
+
+class TestStoreOpenNow:
+    def cfg(self):
+        return {
+            "enabled": True,
+            "slot_minutes": 30,
+            "min_lead_minutes": 0,
+            "max_days_ahead": 7,
+            "hours": {"0": ["09:00", "21:00"]},
+            "holidays": [],
+        }
+
+    def test_open_during_hours(self):
+        # Monday 10:00 UTC = 17:00 WIB.
+        assert store_is_open_now(self.cfg(), TZ, datetime(2024, 1, 1, 10, tzinfo=timezone.utc))
+
+    def test_closed_before_opening(self):
+        # Monday 00:30 UTC = 07:30 WIB.
+        assert not store_is_open_now(self.cfg(), TZ, datetime(2024, 1, 1, 0, 30, tzinfo=timezone.utc))
+
+    def test_closed_after_closing(self):
+        # Monday 15:00 UTC = 22:00 WIB.
+        assert not store_is_open_now(self.cfg(), TZ, datetime(2024, 1, 1, 15, tzinfo=timezone.utc))
+
+    def test_closed_day(self):
+        # Tuesday 02:00 UTC = 09:00 WIB, but only Monday is enabled.
+        assert not store_is_open_now(self.cfg(), TZ, datetime(2024, 1, 2, 2, tzinfo=timezone.utc))
+
+    def test_holiday_closed(self):
+        cfg = self.cfg()
+        cfg["holidays"] = ["2024-01-01"]
+        assert not store_is_open_now(cfg, TZ, datetime(2024, 1, 1, 10, tzinfo=timezone.utc))

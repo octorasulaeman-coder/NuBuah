@@ -1,7 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException
+import gzip
+
+from bson import json_util
+from fastapi import APIRouter, Body, Depends, Header, HTTPException
 from fastapi.responses import FileResponse
 
 from lib import backup as bk
+from lib.backup_collections import COLLECTIONS, verify_data
+from lib.db import db
 from lib.audit import audit
 from lib.auth import Principal, get_principal
 
@@ -26,6 +31,58 @@ async def backup_run(p: Principal = Depends(get_principal)):
     result = await bk.create_backup()
     await audit("backup.run", p, detail={"name": result["name"], "counts": result["counts"]})
     return result
+
+
+MAX_RESTORE_BYTES = 100 * 1024 * 1024
+
+
+@router.post("/backup/restore")
+async def backup_restore(
+    payload: bytes = Body(...),
+    filename: str | None = Header(default=None, alias="X-Filename"),
+    p: Principal = Depends(get_principal),
+):
+    """Owner-only full restore from an official NuBuah .json.gz backup.
+
+    A fresh safety backup is always created before replacing collection contents.
+    """
+    _owner(p)
+    raw = payload
+    if len(raw) > MAX_RESTORE_BYTES:
+        raise HTTPException(status_code=413, detail="File backup terlalu besar (maks 100 MB)")
+    try:
+        payload = gzip.decompress(raw)
+    except (OSError, EOFError) as exc:
+        raise HTTPException(status_code=400, detail="File harus berupa .json.gz hasil backup NuBuah") from exc
+    try:
+        data = json_util.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Isi backup tidak valid") from exc
+    ok, message = verify_data(data)
+    if not ok:
+        raise HTTPException(status_code=400, detail=f"Backup tidak valid: {message}")
+
+    safety = await bk.create_backup()
+    counts: dict[str, int] = {}
+    for name in COLLECTIONS:
+        docs = data["collections"].get(name)
+        if docs is None:
+            continue
+        await db[name].delete_many({})
+        if docs:
+            await db[name].insert_many(docs)
+        counts[name] = len(docs)
+
+    await audit("backup.restore", p, detail={
+        "uploaded": filename,
+        "safety_backup": safety["name"],
+        "counts": counts,
+    })
+    return {
+        "restored": counts,
+        "safety_backup": safety["name"],
+        "message": message,
+    }
 
 
 @router.get("/backup/verify/{name}")

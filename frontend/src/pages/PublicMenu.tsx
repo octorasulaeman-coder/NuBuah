@@ -34,6 +34,11 @@ function LineThumb({ photo }: { photo: string | null | undefined }) {
   return <img src={photo} alt="" className="h-10 w-10 shrink-0 rounded-lg object-cover" />;
 }
 
+function waHref(phone?: string): string | null {
+  const digits = (phone || "").replace(/[^\d]/g, "");
+  return digits.length >= 9 ? `https://wa.me/${digits}` : null;
+}
+
 // Receipt PNG rendering lives in @/lib/receiptImage (shared with the POS pickup dialog).
 
 const lineKey = (ln: OrderLineIn) => `${ln.product_id}|${ln.size ?? ""}|${JSON.stringify(ln.options)}`;
@@ -90,6 +95,24 @@ export default function PublicMenu() {
     if (memberInfo?.is_member && memberInfo.name) setName(memberInfo.name);
   }, [memberInfo?.is_member, memberInfo?.name]);
   const identityOk = memberInfo?.is_member === true || (name.trim().length >= 2 && phone.trim().length >= 9);
+
+  const scheduleQ = useQuery<{ is_open_now?: boolean }>({
+    queryKey: ["public-schedule", code.toUpperCase()],
+    queryFn: () => apiGet(`/public/stores/${encodeURIComponent(code.toUpperCase())}/schedule`),
+    enabled: !!code,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+    retry: false,
+  });
+  const storeOpenNow = scheduleQ.data?.is_open_now ?? true;
+  const acceptingOrders = store?.accepting_orders ?? true;
+  const acceptingOrdersMessage = (store?.accepting_orders_message ?? "").trim();
+  useEffect(() => {
+    // If the store is closed, steer customers to a valid future pickup slot.
+    if (scheduleQ.isSuccess && scheduleQ.data?.is_open_now === false && !scheduled) {
+      setScheduled(true);
+    }
+  }, [scheduleQ.isSuccess, scheduleQ.data?.is_open_now, scheduled]);
 
   const payIntent = useMutation({
     mutationFn: (o: PublicOrderStatus) =>
@@ -246,14 +269,55 @@ export default function PublicMenu() {
                   <span className="whitespace-nowrap font-medium">{rupiah(ln.line_total ?? ln.unit_price * ln.qty)}</span>
                 </div>
               ))}
-              <div className="flex justify-between border-t pt-2 font-bold">
-                <span>Total</span>
-                <span data-testid="public-order-total">{rupiah(live.total)}</span>
+              <div className="space-y-1 border-t pt-2 text-sm">
+                <div className="flex justify-between">
+                  <span>Subtotal</span>
+                  <span>{rupiah(live.subtotal ?? live.lines.reduce((sum, ln) => sum + (ln.line_total ?? ln.unit_price * ln.qty), 0))}</span>
+                </div>
+                {(live.discount_amount ?? 0) > 0 && (
+                  <div className="flex justify-between text-amber-700">
+                    <span>Diskon{live.discount_note ? ` · ${live.discount_note}` : ""}</span>
+                    <span>-{rupiah(live.discount_amount ?? 0)}</span>
+                  </div>
+                )}
+                {(live.coupon_amount ?? 0) > 0 && (
+                  <div className="flex justify-between text-amber-700">
+                    <span>Kupon {live.coupon_code}</span>
+                    <span>-{rupiah(live.coupon_amount ?? 0)}</span>
+                  </div>
+                )}
+                {(live.points_redeemed ?? 0) > 0 && (
+                  <div className="flex justify-between text-amber-700">
+                    <span>Poin {live.points_redeemed}</span>
+                    <span>-{rupiah(live.redeem_value_amount ?? 0)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between border-t pt-2 font-bold">
+                  <span>Total</span>
+                  <span data-testid="public-order-total">{rupiah(live.total)}</span>
+                </div>
               </div>
             </div>
             <p className="mt-4 text-xs text-muted-foreground">
               Sebutkan nomor antrian saat membayar di kasir ({live.store_name}).
             </p>
+            <div className="mt-3 rounded-2xl bg-slate-50 px-4 py-3 text-left text-xs text-slate-600">
+              <div className="font-bold text-slate-700">Ingin bayar QRIS?</div>
+              <p className="mt-1">QRIS online belum tersedia otomatis. Hubungi toko untuk meminta kode QRIS.</p>
+              {waHref(store?.phone) ? (
+                <a
+                  href={waHref(store?.phone) ?? "#"}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-flex rounded-full bg-teal-brand px-3 py-1.5 text-xs font-bold text-white hover:opacity-90"
+                  data-testid="public-contact-store"
+                >
+                  Hubungi toko
+                </a>
+              ) : (
+                <p className="mt-1">Nomor toko belum tersedia. Silakan datang langsung ke kasir.</p>
+              )}
+            </div>
             <div className="mt-4 flex items-center justify-center gap-4">
               <button
                 onClick={downloadReceipt}
@@ -405,6 +469,11 @@ export default function PublicMenu() {
                 </li>
               ))}
             </ul>
+            {store && !acceptingOrders && (
+              <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700" data-testid="public-orders-closed">
+                {acceptingOrdersMessage || "Toko sedang tidak menerima pesanan online. Silakan hubungi toko untuk info lebih lanjut."}
+              </p>
+            )}
             <div className="mt-3 space-y-2">
               <Input placeholder={memberInfo?.is_member ? "Nama (terisi otomatis dari member)" : "Nama (wajib)"} value={name} onChange={(e) => setName(e.target.value)} maxLength={60} data-testid="public-customer-name" />
               <Input inputMode="tel" placeholder={memberInfo?.is_member ? "No. HP (opsional — tersimpan di profil member)" : "No. HP aktif (wajib) — untuk cek status pesanan"} value={phone} onChange={(e) => setPhone(e.target.value.replace(/[^\d+]/g, "").slice(0, 16))} data-testid="public-customer-phone" />
@@ -436,6 +505,11 @@ export default function PublicMenu() {
                   ))}
                 </div>
               </div>
+              {!scheduled && !storeOpenNow && (
+                <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700" data-testid="public-store-closed">
+                  Toko sedang tutup. Silakan pilih jadwal ambil berikutnya.
+                </p>
+              )}
               {scheduled && store && <SchedulePicker mode="public" storeCode={store.code} value={slot} onChange={setSlot} />}
               <Input
                 placeholder="Kode kupon (opsional)"
@@ -491,7 +565,7 @@ export default function PublicMenu() {
             </div>
             <Button
               className="mt-3 w-full rounded-full bg-teal-brand py-5 font-bold hover:bg-teal-deep"
-              disabled={!store || !identityOk || cart.length === 0 || place.isPending || (scheduled && !slot)}
+              disabled={!store || !identityOk || cart.length === 0 || place.isPending || !acceptingOrders || (scheduled && !slot) || (!scheduled && !storeOpenNow)}
               onClick={() =>
                 place.mutate({ store_code: store!.code, lines: cart, customer_name: name.trim(), customer_phone: phone.trim() || null, client_order_id: clientOrderId, scheduled_for: scheduled ? slot : null, coupon_code: couponCode.trim() || null, member_no: memberInfo?.is_member ? memberNo.trim().toUpperCase() : null, redeem_points: memberInfo?.is_member ? memberPtsNum : 0 })
               }

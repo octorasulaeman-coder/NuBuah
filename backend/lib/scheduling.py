@@ -80,6 +80,22 @@ def day_bounds(cfg: dict, day: date) -> Optional[tuple[int, int]]:
     return open_m, close_m
 
 
+def store_is_open_now(cfg: dict, tz: ZoneInfo, now: datetime) -> bool:
+    """Whether the store is inside its configured opening hours at `now`.
+
+    Independent of `enabled`: the scheduled-order switch controls whether customers may
+    book pickup slots, not the store's opening hours for immediate orders.
+    """
+    cfg = normalize_schedule(cfg)
+    local_now = now.astimezone(tz)
+    bounds = day_bounds(cfg, local_now.date())
+    if bounds is None:
+        return False
+    open_m, close_m = bounds
+    minute = local_now.hour * 60 + local_now.minute
+    return open_m <= minute < close_m
+
+
 def slot_grid_starts(cfg: dict, day: date) -> list[int]:
     """All slot start minutes-of-day that fit inside opening hours."""
     bounds = day_bounds(cfg, day)

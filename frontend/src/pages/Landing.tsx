@@ -1,11 +1,11 @@
 import { Link } from "react-router-dom";
 import { motion } from "motion/react";
 import { ArrowRight, Leaf, MapPin, MessageCircle, Sparkles } from "lucide-react";
-import { AppNav, BrandMark } from "@/components/Brand";
+import { BrandMark } from "@/components/Brand";
 import MenuPhoto from "@/components/MenuPhoto";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { buttonVariants } from "@/components/ui/button";
-import { STORE, mapsLink, waNumber, waOrderLink } from "@/data/store";
+import { STORE, mapsLink, waNumber } from "@/data/store";
 import { createContext, useContext, useState } from "react";
 import { usePublicStores } from "@/lib/auth";
 import { SiInstagram } from "@icons-pack/react-simple-icons";
@@ -52,18 +52,16 @@ function SoldOut() {
   return <span className="ml-1.5 rounded bg-destructive px-1.5 py-0.5 align-middle text-[10px] font-bold text-white not-italic">HABIS</span>;
 }
 
-const WaPhone = createContext<string>(STORE.phoneRaw);
+const StoreCode = createContext<string>("");
 
-/** Price pill that opens WhatsApp with a ready-made order message. */
+/** Price pill that directs customers to self-checkout for the selected store. */
 function WaPill({ item, disabled, children, className, testId }: { item: string; disabled?: boolean; children: React.ReactNode; className?: string; testId: string }) {
-  const phone = useContext(WaPhone);
-  if (disabled) return <Pill className={cn("opacity-50", className)}>{children}</Pill>;
+  const code = useContext(StoreCode);
+  if (disabled || !code) return <Pill className={cn("opacity-50", className)}>{children}</Pill>;
   return (
-    <a
-      href={waOrderLink(item, phone)}
-      target="_blank"
-      rel="noreferrer"
-      title={`Pesan ${item} via WhatsApp`}
+    <Link
+      to={`/m/${code}`}
+      title={`Pesan ${item} via self-checkout`}
       data-testid={testId}
       className={cn(
         "inline-flex items-center rounded-full bg-teal-pill/70 px-2.5 py-0.5 font-heading text-sm font-bold text-white transition-[background-color,color,transform] duration-150 hover:bg-zest hover:text-teal-deep active:scale-95",
@@ -71,7 +69,7 @@ function WaPill({ item, disabled, children, className, testId }: { item: string;
       )}
     >
       {children}
-    </a>
+    </Link>
   );
 }
 
@@ -107,7 +105,7 @@ export default function Landing() {
   const catLabel = (id: string, fallback: string) => categories.find((c) => c.id === id)?.label ?? fallback; // follows renames made by the owner
   const extraTabs = categories.filter((c) => !BUILT_IN_TABS.includes(c.id) && products.some((p) => p.category === c.id));
   return (
-    <WaPhone.Provider value={cur?.phone || STORE.phoneRaw}>
+    <StoreCode.Provider value={cur?.code ?? ""}>
     <div className="min-h-screen bg-teal-brand text-white" data-testid="landing-page">
       {/* Nav */}
       <header className="sticky top-0 z-30 border-b border-white/10 bg-teal-deep/80 backdrop-blur-xl">
@@ -117,7 +115,6 @@ export default function Landing() {
             <a href="#menu" className="hidden text-sm font-semibold text-white/85 hover:text-white md:inline" data-testid="nav-link-menu">
               Menu
             </a>
-            <AppNav />
           </div>
         </div>
       </header>
@@ -145,11 +142,11 @@ export default function Landing() {
                 Lihat menu <ArrowRight />
               </a>
               <Link
-                to="/pos"
+                to={cur?.code ? `/m/${cur.code}` : "#menu"}
                 className={cn(buttonVariants({ variant: "outline", size: "lg" }), "h-12 rounded-full border-white/40 bg-transparent px-7 text-base font-semibold text-white hover:bg-white/10 hover:text-white")}
-                data-testid="hero-pos-cta"
+                data-testid="hero-order-cta"
               >
-                Buka kasir
+                Pesan sekarang <ArrowRight />
               </Link>
             </div>
             <dl className="mt-10 grid max-w-md grid-cols-3 gap-4">
@@ -194,7 +191,7 @@ export default function Landing() {
             </div>
             <p className="max-w-sm text-white/75">
               Harga dalam ribu Rupiah. R = Reguler 400 ml, L = Large 600 ml.{" "}
-              <span className="font-semibold text-zest" data-testid="wa-order-hint">Ketuk harga untuk pesan via WhatsApp.</span>
+              <span className="font-semibold text-zest" data-testid="selfcheckout-order-hint">Ketuk harga untuk pesan online.</span>
               {storeList.length > 1 && (
                 <label className="mt-3 flex items-center gap-2 text-sm">
                   Harga di
@@ -246,7 +243,7 @@ export default function Landing() {
                   {smoothies.map((p) => (
                     <div key={p.id} className="group flex gap-4 rounded-2xl bg-white/10 p-3 transition-colors duration-200 hover:bg-white/15" data-testid={`menu-item-${p.id}`}>
                       <div className="size-24 shrink-0 overflow-hidden rounded-xl ring-2 ring-white/15">
-                        <MenuPhoto id={p.id} name={p.name} color={p.color} category="smoothie" className="size-full transition-transform duration-500 group-hover:scale-110" />
+                        <MenuPhoto id={p.id} name={p.name} color={p.color} category="smoothie" photo={p.photo} className="size-full transition-transform duration-500 group-hover:scale-110" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-start justify-between gap-2">
@@ -282,7 +279,7 @@ export default function Landing() {
                     data-testid={`menu-item-${p.id}`}
                   >
                     <div className="size-28 shrink-0 overflow-hidden rounded-full ring-4 ring-white/20">
-                      <MenuPhoto id={p.id} name={p.name} color={p.color} category="bowl" className="size-full transition-transform duration-500 group-hover:scale-110" />
+                      <MenuPhoto id={p.id} name={p.name} color={p.color} category="bowl" photo={p.photo} className="size-full transition-transform duration-500 group-hover:scale-110" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="font-heading text-xl leading-tight font-black italic">
@@ -323,7 +320,7 @@ export default function Landing() {
                     {juices.map((p) => (
                       <li key={p.id} className="group overflow-hidden rounded-2xl bg-white/10 transition-colors duration-200 hover:bg-white/15" data-testid={`menu-item-${p.id}`}>
                         <div className="relative aspect-square overflow-hidden">
-                          <MenuPhoto id={p.id} name={p.name} color={p.color} category="jus" className="size-full transition-transform duration-500 group-hover:scale-110" />
+                          <MenuPhoto id={p.id} name={p.name} color={p.color} category="jus" photo={p.photo} className="size-full transition-transform duration-500 group-hover:scale-110" />
                           <span className="absolute bottom-2 left-2 size-3 rounded-full ring-2 ring-white" style={{ background: p.color }} />
                         </div>
                         <div className="p-2.5">
@@ -396,7 +393,7 @@ export default function Landing() {
                       rows={groups.potong_extra.options.map((o) => ({ label: o.label, price: o.soldOut ? "habis" : `+${kShort(o.r)}` }))}
                     />
                     <WaPill item="Buah Potong (sebutkan buahnya)" className="mt-4 px-4 py-1.5" testId="wa-order-buah-potong">
-                      Pesan buah potong via WhatsApp
+                      Pesan buah potong online
                     </WaPill>
                   </div>
                 </div>
@@ -536,8 +533,8 @@ export default function Landing() {
               <b className="text-white">Harga bersahabat.</b> Jus mulai 10K, smoothie mulai 13K, bowl mulai 29K.
             </li>
           </ul>
-          <Link to="/pos" className={cn(buttonVariants({ size: "lg" }), "mt-8 h-12 rounded-full bg-zest px-7 font-bold text-teal-deep hover:bg-white")} data-testid="story-pos-cta">
-            Pesan di kasir <ArrowRight />
+          <Link to={cur?.code ? `/m/${cur.code}` : "#menu"} className={cn(buttonVariants({ size: "lg" }), "mt-8 h-12 rounded-full bg-zest px-7 font-bold text-teal-deep hover:bg-white")} data-testid="story-order-cta">
+            Pesan online <ArrowRight />
           </Link>
         </motion.div>
       </section>
@@ -606,16 +603,15 @@ export default function Landing() {
             <a href={STORE.whatsapp} target="_blank" rel="noreferrer" aria-label="WhatsApp NuBuah" className="text-white/80 hover:text-zest" data-testid="footer-link-whatsapp">
               <MessageCircle className="size-[18px]" />
             </a>
-            <Link to="/pos" className="text-white/80 hover:text-zest" data-testid="footer-link-pos">
-              Kasir
-            </Link>
-            <Link to="/history" className="text-white/80 hover:text-zest" data-testid="footer-link-history">
-              Riwayat & cetak struk
-            </Link>
+            {cur?.code && (
+              <Link to={`/m/${cur.code}`} className="text-white/80 hover:text-zest" data-testid="footer-link-selfcheckout">
+                Pesan online
+              </Link>
+            )}
           </div>
         </div>
       </footer>
     </div>
-    </WaPhone.Provider>
+    </StoreCode.Provider>
   );
 }

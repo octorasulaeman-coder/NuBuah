@@ -21,7 +21,7 @@ from lib.pricing import verify_line
 from lib.ratelimit import check_rate, client_ip
 from lib.scheduling import (
     ScheduleError, build_day_slots, local_day_range, normalize_schedule,
-    upcoming_days, validate_requested_slot,
+    store_is_open_now, upcoming_days, validate_requested_slot,
 )
 from lib.slot_reservation import release_slot, reserve_slot, slot_counts
 from lib.loyalty import effective_config, points_for_order
@@ -53,6 +53,13 @@ def _status(order: dict, store_name: str, cfg=None) -> PublicOrderStatus:
         scheduled_for=aware_utc(order.get("scheduled_for")),
         status=order.get("status", "received"),
         points_earned=points_for_order(order.get("total", 0), cfg) if order.get("payment_status") == "paid" else 0,
+        subtotal=int(order.get("subtotal") or sum(int(ln.get("line_total") or 0) for ln in order.get("lines", []))),
+        discount_amount=int(order.get("discount_amount") or 0),
+        discount_note=order.get("discount_note"),
+        coupon_code=order.get("coupon_code"),
+        coupon_amount=int(order.get("coupon_amount") or 0),
+        points_redeemed=int(order.get("points_redeemed") or 0),
+        redeem_value_amount=int(order.get("redeem_value_amount") or 0),
     )
 
 
@@ -116,6 +123,7 @@ async def public_store_schedule(code: str, request: Request):
         "slot_minutes": cfg.get("slot_minutes"),
         "lead_time_minutes": cfg.get("lead_time_minutes"),
         "max_days_ahead": cfg.get("max_days_ahead"),
+        "is_open_now": store_is_open_now(cfg, tz, datetime.now(timezone.utc)),
         "days": upcoming_days(cfg, tz, datetime.now(timezone.utc)),
     }
 
@@ -203,6 +211,9 @@ async def public_order(payload: PublicOrderIn, request: Request):
     if not store:
         raise HTTPException(status_code=404, detail="Toko tidak ditemukan")
     store_id = store["id"]
+    if store.get("accepting_orders", True) is False:
+        detail = (store.get("accepting_orders_message") or "").strip() or "Toko sedang tidak menerima pesanan online."
+        raise HTTPException(status_code=409, detail=detail)
 
     fingerprint = payload_fingerprint(payload.model_dump())
     if payload.client_order_id:
@@ -214,6 +225,9 @@ async def public_order(payload: PublicOrderIn, request: Request):
 
     # Scheduled pickup (P2): same validation + capacity rules as the cashier path.
     schedule_cfg = normalize_schedule(store.get("schedule"))
+    store_tz = ZoneInfo(STORE_TZ)
+    if payload.scheduled_for is None and not store_is_open_now(schedule_cfg, store_tz, datetime.now(timezone.utc)):
+        raise HTTPException(status_code=409, detail="Toko sedang tutup. Pilih jadwal ambil atau pesan saat toko buka.")
     scheduled_for = None
     if payload.scheduled_for:
         try:
