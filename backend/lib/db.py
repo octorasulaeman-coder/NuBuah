@@ -13,8 +13,8 @@ import os
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ASCENDING, IndexModel
 
-MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017/nubuah_pos")
-DB_NAME = os.environ.get("MONGO_DB_NAME", "nubuah_pos")
+MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017/nubuah")
+DB_NAME = os.environ.get("MONGO_DB_NAME", "nubuah")
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
