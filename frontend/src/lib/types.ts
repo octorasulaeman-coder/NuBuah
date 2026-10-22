@@ -85,6 +85,14 @@ export interface Order {
 
 export type OrderStatus = "received" | "confirmed" | "preparing" | "ready" | "completed" | "cancelled";
 
+// GET /orders/cashier-queue — action-first customer/scheduled queue for POS staff.
+export interface CashierQueue {
+  unpaid: Order[];
+  processing: Order[];
+  ready: Order[];
+  completed: Order[];
+}
+
 // P2 scheduling — backend/models/schedule.py
 export interface ScheduleInfo {
   enabled: boolean;

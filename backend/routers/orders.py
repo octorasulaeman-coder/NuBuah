@@ -302,7 +302,11 @@ async def create_order(payload: OrderCreate, p: Principal = Depends(get_principa
 
 @router.get("/orders/pending", response_model=list[Order])
 async def list_pending_customer_orders(store_id: Optional[str] = Query(None), p: Principal = Depends(get_principal)):
-    """Customer-channel orders waiting for payment at the counter (today, this store)."""
+    """Customer-channel orders waiting for payment at the counter (today, this store).
+
+    Kept for compatibility; the POS now uses /orders/cashier-queue for the unified
+    customer/scheduled action view.
+    """
     sid = await resolve_store(p, store_id)
     d = today_iso(STORE_TZ)
     docs = await db.orders.find(
@@ -310,6 +314,73 @@ async def list_pending_customer_orders(store_id: Optional[str] = Query(None), p:
         {"_id": 0},
     ).sort("created_at", 1).to_list(200)
     return [_to_order(d) for d in docs]
+
+
+@router.get("/orders/cashier-queue")
+async def cashier_queue(store_id: Optional[str] = Query(None), include_completed: bool = Query(True),
+                        p: Principal = Depends(get_principal)):
+    """Action-first queue for customer self-checkout and scheduled pickup orders.
+
+    - unpaid: every active unpaid customer/scheduled order, regardless pickup date;
+    - processing: paid orders still in the staff workflow;
+    - ready: paid orders waiting for customer handoff;
+    - completed: recent completed/cancelled orders for history.
+    """
+    sid = await resolve_store(p, store_id or p.store_id)
+    customer_scope = {"$or": [{"channel": "customer"}, {"fulfillment": "scheduled"}]}
+    active = {"voided": {"$ne": True}, "status": {"$nin": [CANCELLED, COMPLETED]}}
+
+    unpaid_docs = await db.orders.find(
+        {**customer_scope, **active, "payment_status": "pending"}, {"_id": 0}
+    ).to_list(500)
+    processing_docs = await db.orders.find(
+        {**customer_scope, **active, "payment_status": "paid",
+         "status": {"$in": ["received", "confirmed", "preparing"]}}, {"_id": 0}
+    ).to_list(500)
+    ready_docs = await db.orders.find(
+        {**customer_scope, **active, "payment_status": "paid", "status": "ready"}, {"_id": 0}
+    ).to_list(500)
+
+    if include_completed:
+        completed_docs = await db.orders.find(
+            {**customer_scope, "$or": [{"voided": True}, {"status": {"$in": [CANCELLED, COMPLETED]}}]},
+            {"_id": 0}, sort=[("updated_at", -1)],
+        ).to_list(200)
+    else:
+        completed_docs = []
+
+    epoch = datetime.min.replace(tzinfo=timezone.utc)
+    far_future = datetime.max.replace(tzinfo=timezone.utc)
+
+    def as_utc(value):
+        if isinstance(value, datetime):
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        if isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+            except ValueError:
+                return None
+        return None
+
+    def urgency(doc: dict):
+        immediate = doc.get("fulfillment") != "scheduled"
+        created = as_utc(doc.get("created_at")) or epoch
+        scheduled = as_utc(doc.get("scheduled_for"))
+        return (0 if immediate else 1, scheduled or created, created)
+
+    def ready_urgency(doc: dict):
+        created = as_utc(doc.get("created_at")) or epoch
+        scheduled = as_utc(doc.get("scheduled_for"))
+        late = bool(scheduled and scheduled < datetime.now(timezone.utc))
+        return (0 if late else 1, scheduled or far_future, created)
+
+    return {
+        "unpaid": [_to_order(d) for d in sorted(unpaid_docs, key=urgency)],
+        "processing": [_to_order(d) for d in sorted(processing_docs, key=urgency)],
+        "ready": [_to_order(d) for d in sorted(ready_docs, key=ready_urgency)],
+        "completed": [_to_order(d) for d in completed_docs],
+    }
 
 
 @router.post("/orders/{id}/pay", response_model=Order)
