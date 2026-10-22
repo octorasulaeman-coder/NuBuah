@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Banknote, CreditCard, QrCode } from "lucide-react";
+import { Banknote, QrCode } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -14,10 +14,11 @@ import SchedulePicker from "@/components/SchedulePicker";
 import type { Customer, DiscountType, Order, OrderCreate, OrderLineIn, PaymentMethod } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+// Card remains supported by the backend/API, but is intentionally hidden from the
+// cashier UI per current store workflow (cash and QRIS only).
 const METHODS: { id: PaymentMethod; label: string; icon: typeof Banknote }[] = [
   { id: "cash", label: "Tunai", icon: Banknote },
   { id: "qris", label: "QRIS", icon: QrCode },
-  { id: "card", label: "Kartu", icon: CreditCard },
 ];
 
 // crypto.randomUUID() needs a secure context (https or localhost); on plain-http LAN it is
@@ -158,6 +159,7 @@ export default function CheckoutDialog({
     setSlot(null);
     setPayAtPickup(false);
     setCouponCode("");
+    couponPreview.reset();
     setRedeemPts("");
   };
 
@@ -216,7 +218,7 @@ export default function CheckoutDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md" data-testid="checkout-dialog">
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-md" data-testid="checkout-dialog">
         <DialogHeader>
           <DialogTitle className="font-heading text-xl font-extrabold italic text-teal-deep">Pembayaran</DialogTitle>
           <DialogDescription>
@@ -503,11 +505,6 @@ export default function CheckoutDialog({
         {method === "qris" && (
           <p className="rounded-xl bg-mint px-4 py-3 text-sm text-teal-deep" data-testid="qris-hint">
             Minta pelanggan scan QRIS toko, lalu konfirmasi setelah pembayaran masuk.
-          </p>
-        )}
-        {method === "card" && (
-          <p className="rounded-xl bg-mint px-4 py-3 text-sm text-teal-deep" data-testid="card-hint">
-            Proses di mesin EDC, lalu konfirmasi setelah transaksi berhasil.
           </p>
         )}
           </>

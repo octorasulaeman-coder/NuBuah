@@ -68,6 +68,7 @@ export interface Order {
   change: number | null;
   customer_name: string | null;
   customer_phone: string | null;
+  member_no?: string | null;
   voided?: boolean;
   void_reason?: string | null;
   voided_at?: string | null;
@@ -75,6 +76,7 @@ export interface Order {
   // P2 scheduling + preparation flow
   fulfillment?: string; // "immediate" | "scheduled"
   scheduled_for?: string | null; // UTC slot start
+  pay_at_pickup?: boolean;
   status?: string; // received|confirmed|preparing|ready|completed|cancelled
   // P5 customer programs (snapshotted at creation)
   coupon_code?: string | null;
@@ -84,6 +86,14 @@ export interface Order {
 }
 
 export type OrderStatus = "received" | "confirmed" | "preparing" | "ready" | "completed" | "cancelled";
+
+// GET /orders/cashier-queue — action-first customer/scheduled queue for POS staff.
+export interface CashierQueue {
+  unpaid: Order[];
+  processing: Order[];
+  ready: Order[];
+  completed: Order[];
+}
 
 // P2 scheduling — backend/models/schedule.py
 export interface ScheduleInfo {
@@ -310,6 +320,7 @@ export interface PublicOrderStatus {
   created_at: string;
   fulfillment?: string; // "immediate" | "scheduled"
   scheduled_for?: string | null; // UTC slot start
+  pay_at_pickup?: boolean;
   status?: string; // received|confirmed|preparing|ready|completed|cancelled
   points_earned?: number; // loyalty points this order earned (once paid)
 }

@@ -69,6 +69,19 @@ const CATEGORY_DEFAULT_GROUPS: Record<string, string[]> = {
   snack: [],
 };
 
+export function defaultGroupsFor(category: string): string[] {
+  return CATEGORY_DEFAULT_GROUPS[category] ?? [];
+}
+
+// Editor-facing product row: current effective values plus the original row and
+// flags used by MenuEditor for reset/edited/custom display.
+export interface LiveProduct extends Product {
+  base: Product;
+  orig: Product;
+  custom: boolean;
+  edited: boolean;
+}
+
 export function useMenu(storeId: string | null) {
   const q = useQuery({
     queryKey: ["menu-bundle", storeId],
@@ -114,17 +127,24 @@ export function useMenu(storeId: string | null) {
 
   const allGroups = groups; // hidden options are already merged; editor uses the same map
 
-  const allProducts = useMemo<Product[]>(() => {
+  const allProducts = useMemo<LiveProduct[]>(() => {
     const ov = new Map((bundle?.menu_overrides ?? []).map((o) => [o.product_id, o]));
+    const productEdits = new Map(
+      (bundle?.edits ?? [])
+        .filter((e) => e.kind === "product")
+        .map((e) => [e.key, e]),
+    );
     const codes = bundle?.codes ?? {};
     return (bundle?.menu_products ?? []).map((p) => {
       const o = ov.get(p.id);
-      const own = p.groups ?? CATEGORY_DEFAULT_GROUPS[p.category] ?? [];
+      const e = productEdits.get(p.id);
+      const own = p.groups ?? defaultGroupsFor(p.category);
       // groups attached via product_ids (topping groups that offer themselves on listed items)
       const attached = (bundle?.menu_groups ?? [])
         .filter((g) => g.product_ids?.includes(p.id) && !own.includes(g.id))
         .map((g) => g.id);
-      return {
+
+      const base: Product = {
         id: p.id,
         code: codes[p.id] ?? p.code ?? "",
         name: p.name,
@@ -137,15 +157,34 @@ export function useMenu(storeId: string | null) {
         section: p.section,
         sizes: p.sizes,
         pricing: p.pricing,
-        r: o?.r ?? p.r,
-        l: o && o.l != null ? o.l : p.l,
-        groups: [...own, ...attached].filter((gid) => !!groups[gid]),
+        r: p.r,
+        l: p.l,
+        groups: own.filter((gid) => !!groups[gid]),
         color: p.color,
+        soldOut: false,
+        overridden: false,
+        hidden: false,
+        builtin: p.builtin,
+        imgId: p.img_id,
+      };
+
+      return {
+        ...base,
+        name: e?.name ?? base.name,
+        desc: e?.desc ?? base.desc,
+        category: e?.category ?? base.category,
+        section: e?.section ?? base.section,
+        color: e?.color ?? base.color,
+        r: o?.r ?? base.r,
+        l: o && o.l != null ? o.l : base.l,
+        groups: [...base.groups, ...attached].filter((gid) => !!groups[gid]),
         soldOut: !!o?.sold_out,
         overridden: !!o && (o.r != null || o.l != null),
         hidden: !!o?.hidden,
-        builtin: p.builtin,
-        imgId: p.img_id,
+        base,
+        orig: base,
+        custom: !p.builtin,
+        edited: !!e,
       };
     });
   }, [bundle, groups]);

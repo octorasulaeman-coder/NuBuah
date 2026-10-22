@@ -35,6 +35,12 @@ STORE_TZ = os.environ.get("STORE_TZ", "Asia/Jakarta")
 def _status(order: dict, store_name: str, cfg=None) -> PublicOrderStatus:
     from lib.loyalty import effective_config
     cfg = cfg or effective_config(None)  # env defaults when the caller has no store doc
+
+    def aware_utc(value):
+        if isinstance(value, datetime) and value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+
     return PublicOrderStatus(
         id=order["id"],
         order_no=order["order_no"],
@@ -42,9 +48,9 @@ def _status(order: dict, store_name: str, cfg=None) -> PublicOrderStatus:
         payment_status=order.get("payment_status", "paid"),
         total=order["total"],
         lines=[OrderLine(**ln) for ln in order["lines"]],
-        created_at=order["created_at"],
+        created_at=aware_utc(order["created_at"]),
         fulfillment=order.get("fulfillment", "immediate"),
-        scheduled_for=order.get("scheduled_for"),
+        scheduled_for=aware_utc(order.get("scheduled_for")),
         status=order.get("status", "received"),
         points_earned=points_for_order(order.get("total", 0), cfg) if order.get("payment_status") == "paid" else 0,
     )

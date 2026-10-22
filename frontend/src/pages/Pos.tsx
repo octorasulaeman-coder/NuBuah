@@ -2,10 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { CloudOff, Minus, Plus, Printer, Search, Settings2, ShoppingBag, Trash2, X } from "lucide-react";
 import { Bell } from "lucide-react";
-import { CalendarClock } from "lucide-react";
-import ScheduledDialog from "@/components/pos/ScheduledDialog";
 import { toast } from "sonner";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import StaffBar from "@/components/StaffBar";
@@ -15,7 +12,7 @@ import Swatch from "@/components/Swatch";
 import MenuPhoto from "@/components/MenuPhoto";
 import ItemDialog from "@/components/pos/ItemDialog";
 import CheckoutDialog from "@/components/pos/CheckoutDialog";
-import CustomerOrdersDialog from "@/components/pos/CustomerOrdersDialog";
+import { CustomerOrdersDialog } from "@/components/pos/CustomerOrdersDialog";
 import MenuManager from "@/components/pos/MenuManager";
 import { type Product } from "@/lib/useMenu";
 import { kShort, plain, rupiah } from "@/lib/format";
@@ -24,7 +21,7 @@ import { useMenu } from "@/lib/useMenu";
 import { onQueueChange, queuedOrders, syncOfflineQueue } from "@/lib/offlineQueue";
 import { apiGet } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
-import type { Order, OrderLineIn } from "@/lib/types";
+import type { CashierQueue, Order, OrderLineIn } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 interface CartLine extends OrderLineIn {
@@ -44,10 +41,8 @@ export default function Pos() {
   const [configuring, setConfiguring] = useState<Product | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [receipt, setReceipt] = useState<Order | null>(null);
-  const [paidOnline, setPaidOnline] = useState<Order | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [incomingOpen, setIncomingOpen] = useState(false);
-  const [scheduledOpen, setScheduledOpen] = useState(false);
 
   // Offline queue: badge count + background sync (on load, on 'online', every 30s).
   const [queueCount, setQueueCount] = useState(() => queuedOrders().length);
@@ -70,14 +65,15 @@ export default function Pos() {
   const active = useActiveStore();
   const { storeId, isOwner } = active;
 
-  // incoming customer (phone) orders awaiting payment at the counter
-  const pendingQ = useQuery({
-    queryKey: ["orders", "pending", storeId],
-    queryFn: () => apiGet<Order[]>(`/orders/pending${storeId ? `?store_id=${storeId}` : ""}`),
+  // Unified customer/scheduled queue used by the Pesanan button and dialog.
+  const customerQueueQ = useQuery({
+    queryKey: ["orders", "cashier-queue", "count", storeId],
+    queryFn: () => apiGet<CashierQueue>(`/orders/cashier-queue?store_id=${storeId}&include_completed=false`),
     enabled: !!storeId,
-    refetchInterval: 30_000,
+    refetchInterval: 15_000,
   });
-  const pendingCount = pendingQ.data?.length ?? 0;
+  const customerActionCount =
+    (customerQueueQ.data?.unpaid.length ?? 0) + (customerQueueQ.data?.ready.length ?? 0);
   const { products: menu, allProducts, categories, customCategories, customGroups, groups, allGroups, optionOverridden } = useMenu(storeId);
 
   const [sort, setSort] = useState<SortMode>(() => (localStorage.getItem(SORT_KEY) as SortMode) || "default");
@@ -123,25 +119,16 @@ export default function Pos() {
             <button
               onClick={() => setIncomingOpen(true)}
               className="relative inline-flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-white/30"
-              title="Pesanan online yang belum dibayar"
-              data-testid="incoming-orders-button"
+              title="Pesanan pelanggan yang butuh tindakan"
+              data-testid="customer-queue-button"
             >
               <Bell size={14} />
-              <span className="hidden xl:inline">Pesanan online</span>
-              {pendingCount > 0 && (
-                <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white" data-testid="incoming-orders-badge">
-                  {pendingCount}
+              <span className="hidden xl:inline">Pesanan</span>
+              {customerActionCount > 0 && (
+                <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white" data-testid="customer-queue-badge">
+                  {customerActionCount}
                 </span>
               )}
-            </button>
-            <button
-              onClick={() => setScheduledOpen(true)}
-              className="inline-flex items-center gap-1 rounded-full bg-white/20 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-white/30"
-              title="Pesanan dengan jadwal ambil"
-              data-testid="scheduled-orders-button"
-            >
-              <CalendarClock size={14} />
-              <span className="hidden xl:inline">Terjadwal</span>
             </button>
             {queueCount > 0 && (
               <span
@@ -393,24 +380,15 @@ export default function Pos() {
       />
 
       <ReceiptSuccessDialog order={receipt} onClose={() => setReceipt(null)} />
-      <Dialog open={scheduledOpen} onOpenChange={setScheduledOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl" data-testid="scheduled-dialog-content">
-          <DialogHeader>
-            <DialogTitle className="sr-only">Pesanan terjadwal</DialogTitle>
-            <DialogDescription className="sr-only">Antrian pesanan dengan jadwal ambil</DialogDescription>
-          </DialogHeader>
-          <ScheduledDialog onClose={() => setScheduledOpen(false)} />
-        </DialogContent>
-      </Dialog>
       <CustomerOrdersDialog
         open={incomingOpen}
         onClose={() => setIncomingOpen(false)}
+        storeId={storeId}
         onPaid={(order) => {
-          setPaidOnline(order);
+          setReceipt(order);
           setIncomingOpen(false);
         }}
       />
-      <ReceiptSuccessDialog order={paidOnline} onClose={() => setPaidOnline(null)} />
       <MenuManager open={editorOpen} onOpenChange={setEditorOpen} storeId={storeId} />
     </div>
   );

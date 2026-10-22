@@ -51,7 +51,7 @@ export default function CustomProductForm({ open, onOpenChange, initial, categor
 
   const hasSizes = category !== "bowl";
   const effGroups = groups ?? defaultGroupsFor(category);
-  const toggleGroup = (id: string, on: boolean) => setGroups(on ? [...effGroups, id] : effGroups.filter((g) => g !== id));
+  const toggleGroup = (id: string, on: boolean) => setGroups(on ? [...effGroups, id] : effGroups.filter((g: string) => g !== id));
   const clash = code ? existingCodes.find((x) => x.id !== initial?.id && x.code?.toUpperCase() === code) : undefined;
   const valid = name.trim().length > 0 && r !== "" && !clash;
 

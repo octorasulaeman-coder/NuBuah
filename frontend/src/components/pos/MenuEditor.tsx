@@ -122,7 +122,7 @@ function Row({ p, qs, isOwner, onEdit, allCodes }: { p: LiveProduct; qs: string;
           {p.overridden && (
             <div className="text-[11px] text-muted-foreground">
               Harga awal {plain(base.r)}
-              {base.l !== undefined && ` / ${plain(base.l)}`}
+              {base.l != null && ` / ${plain(base.l)}`}
             </div>
           )}
         </div>
@@ -232,7 +232,7 @@ function OptionRow({ groupId, o, base, overridden, qs, isOwner, onEdit }: { grou
           {overridden && (
             <div className="text-[11px] text-muted-foreground">
               Harga awal {plain(base.r)}
-              {base.l !== undefined && ` / ${plain(base.l)}`}
+              {base.l != null && ` / ${plain(base.l)}`}
             </div>
           )}
         </div>
@@ -372,7 +372,7 @@ export default function MenuEditor({
   };
   const openEdit = (p: LiveProduct) => {
     const isDefault = JSON.stringify(p.base.groups) === JSON.stringify(defaultGroupsFor(p.category));
-    setEditing({ id: p.id, code: p.code, name: p.base.name, category: p.category, section: p.base.section, groups: isDefault ? null : p.base.groups, desc: p.base.desc, benefit: p.base.benefit, r: p.base.r, l: p.base.l, color: p.base.color });
+    setEditing({ id: p.id, code: p.code, name: p.base.name, category: p.category, section: p.base.section, groups: isDefault ? null : p.base.groups, desc: p.base.desc, benefit: p.base.benefit, r: p.base.r, l: p.base.l ?? undefined, color: p.base.color });
     setFormKey((k) => k + 1);
     setFormOpen(true);
   };

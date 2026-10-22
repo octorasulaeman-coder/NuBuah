@@ -1,5 +1,6 @@
 import os
 import re
+import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -78,12 +79,20 @@ async def next_order_seq(store_id: str, business_date: str) -> int:
     return seq
 
 
+def _utc_aware(value):
+    if isinstance(value, datetime) and value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
+
+
 def _to_order(doc: dict) -> Order:
     doc.pop("_id", None)
     doc.pop("seeded", None)
-    created = doc.get("created_at")
-    if isinstance(created, datetime) and created.tzinfo is None:
-        doc["created_at"] = created.replace(tzinfo=timezone.utc)
+    # Older rows may contain naive UTC datetimes. FastAPI serializes naive values without
+    # a Z suffix, so browsers interpret them as local time and the scheduled hour appears
+    # to shift (e.g. 13:30 WIB becomes 06:30). Normalize before serialization.
+    for field in ("created_at", "updated_at", "paid_at", "scheduled_for"):
+        doc[field] = _utc_aware(doc.get(field))
     return Order(**doc)
 
 
@@ -234,6 +243,7 @@ async def create_order(payload: OrderCreate, p: Principal = Depends(get_principa
         idempotency_hash=fingerprint,
         fulfillment="scheduled" if scheduled_for else "immediate",
         scheduled_for=scheduled_for,
+        pay_at_pickup=bool(payload.pay_at_pickup),
         payment_status="pending" if not pay_now else "paid",
         order_no=f"{store['code']}-{business_date.replace('-', '')[2:]}-{seq:03d}",
         business_date=business_date,
@@ -302,7 +312,11 @@ async def create_order(payload: OrderCreate, p: Principal = Depends(get_principa
 
 @router.get("/orders/pending", response_model=list[Order])
 async def list_pending_customer_orders(store_id: Optional[str] = Query(None), p: Principal = Depends(get_principal)):
-    """Customer-channel orders waiting for payment at the counter (today, this store)."""
+    """Customer-channel orders waiting for payment at the counter (today, this store).
+
+    Kept for compatibility; the POS now uses /orders/cashier-queue for the unified
+    customer/scheduled action view.
+    """
     sid = await resolve_store(p, store_id)
     d = today_iso(STORE_TZ)
     docs = await db.orders.find(
@@ -312,6 +326,97 @@ async def list_pending_customer_orders(store_id: Optional[str] = Query(None), p:
     return [_to_order(d) for d in docs]
 
 
+@router.get("/orders/cashier-queue")
+async def cashier_queue(store_id: Optional[str] = Query(None), include_completed: bool = Query(True),
+                        history_days: int = Query(default=7, ge=1, le=30),
+                        p: Principal = Depends(get_principal)):
+    """Action-first queue for customer self-checkout and scheduled pickup orders.
+
+    - unpaid: every active unpaid customer/scheduled order, regardless pickup date;
+    - processing: paid orders still in the staff workflow;
+    - ready: paid orders waiting for customer handoff;
+    - completed: recent completed/cancelled orders for history.
+    """
+    sid = await resolve_store(p, store_id or p.store_id)
+    customer_scope = {"$or": [{"channel": "customer"}, {"fulfillment": "scheduled"}]}
+    active = {"voided": {"$ne": True}, "status": {"$nin": [CANCELLED, COMPLETED]}}
+    epoch = datetime.min.replace(tzinfo=timezone.utc)
+    far_future = datetime.max.replace(tzinfo=timezone.utc)
+
+    def as_utc(value):
+        if isinstance(value, datetime):
+            return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        if isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+            except ValueError:
+                return None
+        return None
+
+    all_unpaid_docs = await db.orders.find(
+        {**customer_scope, **active, "payment_status": "pending"}, {"_id": 0}
+    ).to_list(500)
+
+    # Future scheduled unpaid orders stay visible, but they are not urgent cashier
+    # actions today. They appear under processing/upcoming instead of action.
+    due_cutoff = datetime.now(timezone.utc) + timedelta(hours=24)
+    unpaid_docs: list[dict] = []
+    upcoming_unpaid_docs: list[dict] = []
+    for doc in all_unpaid_docs:
+        scheduled = as_utc(doc.get("scheduled_for"))
+        if doc.get("fulfillment") == "scheduled" and scheduled and scheduled > due_cutoff:
+            upcoming_unpaid_docs.append(doc)
+        else:
+            unpaid_docs.append(doc)
+
+    processing_docs = await db.orders.find(
+        {**customer_scope, **active, "payment_status": "paid",
+         "status": {"$in": ["received", "confirmed", "preparing"]}}, {"_id": 0}
+    ).to_list(500)
+    processing_docs.extend(upcoming_unpaid_docs)
+    ready_docs = await db.orders.find(
+        {**customer_scope, **active, "payment_status": "paid", "status": "ready"}, {"_id": 0}
+    ).to_list(500)
+
+    if include_completed:
+        history_cutoff = datetime.now(timezone.utc) - timedelta(days=history_days)
+        completed_docs = await db.orders.find(
+            {
+                **customer_scope,
+                "$and": [
+                    {"$or": [
+                        {"updated_at": {"$gte": history_cutoff}},
+                        {"created_at": {"$gte": history_cutoff}},
+                    ]},
+                    {"$or": [{"voided": True}, {"status": {"$in": [CANCELLED, COMPLETED]}}]},
+                ],
+            },
+            {"_id": 0}, sort=[("updated_at", -1)],
+        ).to_list(200)
+    else:
+        completed_docs = []
+
+    def urgency(doc: dict):
+        immediate = doc.get("fulfillment") != "scheduled"
+        created = as_utc(doc.get("created_at")) or epoch
+        scheduled = as_utc(doc.get("scheduled_for"))
+        return (0 if immediate else 1, scheduled or created, created)
+
+    def ready_urgency(doc: dict):
+        created = as_utc(doc.get("created_at")) or epoch
+        scheduled = as_utc(doc.get("scheduled_for"))
+        late = bool(scheduled and scheduled < datetime.now(timezone.utc))
+        return (0 if late else 1, scheduled or far_future, created)
+
+    return {
+        "unpaid": [_to_order(d) for d in sorted(unpaid_docs, key=urgency)],
+        "processing": [_to_order(d) for d in sorted(processing_docs, key=urgency)],
+        "ready": [_to_order(d) for d in sorted(ready_docs, key=ready_urgency)],
+        "completed": [_to_order(d) for d in completed_docs],
+    }
+
+
 @router.post("/orders/{id}/pay", response_model=Order)
 async def pay_pending_order(id: str, payload: OrderPayIn, p: Principal = Depends(get_principal)):
     """Cashier collects payment for a pending customer order at pickup."""
@@ -319,20 +424,77 @@ async def pay_pending_order(id: str, payload: OrderPayIn, p: Principal = Depends
     if not doc:
         raise HTTPException(status_code=404, detail="Order not found")
     await resolve_store(p, doc.get("store_id"))  # cashier must belong to the order's store
-    if doc.get("channel") != "customer" or doc.get("payment_status") != "pending":
-        raise HTTPException(status_code=409, detail="Pesanan ini sudah dibayar")
-    subtotal = doc["total"]  # customer orders are created undiscounted, so total == subtotal
+    payable_source = (
+        doc.get("channel") == "customer"
+        or doc.get("pay_at_pickup")
+        or doc.get("fulfillment") == "scheduled"
+    )
+    if not payable_source:
+        raise HTTPException(status_code=409, detail="Pembayaran hanya untuk pesanan customer atau terjadwal")
+    # Idempotent retry: once payment is recorded, return the authoritative paid order.
+    if doc.get("payment_status") == "paid":
+        return _to_order(doc)
+    # Any active customer order that is not already paid is payable, regardless of the
+    # historical spelling/default of its payment_status field. Terminal orders cannot be paid.
+    if doc.get("voided") or doc.get("status") in (CANCELLED, COMPLETED):
+        raise HTTPException(status_code=409, detail="Pesanan tidak bisa dibayar")
+    from lib.customers import refund_redeem, release_coupon, redeem_points, reserve_coupon, validate_and_price_coupon
+    from lib.loyalty import CouponError, redeem_value
+
+    # Customer self-checkout may already include discount/coupon/points in `total`; the
+    # authoritative undiscounted subtotal is the sum of order lines. Cashier payment can
+    # add the same payment-time adjustments that manual checkout supports.
+    subtotal = sum(int(line.get("line_total") or 0) for line in doc.get("lines", [])) or int(doc.get("total") or 0)
+    existing_discount = int(doc.get("discount_amount") or 0)
     discount = 0
-    if payload.discount_type and payload.discount_value:
-        if payload.discount_type == "percent":
-            if payload.discount_value > 100:
+    discount_type = payload.discount_type or doc.get("discount_type")
+    discount_value = payload.discount_value if payload.discount_value is not None else doc.get("discount_value")
+    if discount_type and discount_value:
+        if discount_type == "percent":
+            if discount_value > 100:
                 raise HTTPException(status_code=400, detail="Diskon persen maksimal 100%")
-            discount = (subtotal * payload.discount_value + 50) // 100
+            discount = (subtotal * discount_value + 50) // 100
         else:
-            if payload.discount_value > subtotal:
+            if discount_value > subtotal:
                 raise HTTPException(status_code=400, detail="Diskon lebih besar dari total belanja")
-            discount = payload.discount_value
-    total = subtotal - discount
+            discount = discount_value
+    if discount == 0 and existing_discount:
+        # Preserve a discount already selected during self-checkout when cashier does not
+        # modify discount fields at payment time.
+        discount = existing_discount
+
+    after_discount = max(0, subtotal - discount)
+    coupon_code = doc.get("coupon_code")
+    coupon_amount = int(doc.get("coupon_amount") or 0)
+    coupon_id_to_reserve = None
+    if payload.coupon_code:
+        if coupon_code and payload.coupon_code != coupon_code:
+            raise HTTPException(status_code=409, detail="Kupon sudah dipakai pada pesanan ini")
+        if not coupon_code:
+            try:
+                coupon_doc, coupon_amount = await validate_and_price_coupon(
+                    doc["store_id"], payload.coupon_code, after_discount, doc.get("lines", []), doc.get("customer_phone"),
+                )
+                coupon_code = payload.coupon_code
+                coupon_id_to_reserve = coupon_doc["id"]
+            except CouponError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    points_redeemed = int(doc.get("points_redeemed") or 0)
+    points_value = int(doc.get("redeem_value_amount") or 0)
+    points_to_redeem = 0
+    if payload.redeem_points:
+        if points_redeemed and payload.redeem_points != points_redeemed:
+            raise HTTPException(status_code=409, detail="Poin sudah dipakai pada pesanan ini")
+        if not points_redeemed:
+            customer = await db.customers.find_one({"store_id": doc["store_id"], "phone": doc.get("customer_phone")}, {"_id": 0, "points": 1})
+            if not customer or int(customer.get("points") or 0) < payload.redeem_points:
+                raise HTTPException(status_code=400, detail="Poin member tidak cukup")
+            points_to_redeem = payload.redeem_points
+            points_redeemed = points_to_redeem
+            points_value = redeem_value(payload.redeem_points)
+
+    total = max(0, after_discount - coupon_amount - points_value)
     if discount > 0:
         cap = discount_cap_pct()
         above_cap = subtotal == 0 or discount * 100 > cap * subtotal
@@ -354,26 +516,88 @@ async def pay_pending_order(id: str, payload: OrderPayIn, p: Principal = Depends
         change = cash_tendered - total
     changes = {
         "subtotal": subtotal,
-        "discount_type": payload.discount_type if discount > 0 else None,
-        "discount_value": payload.discount_value if discount > 0 else 0,
-        "discount_note": payload.discount_note.strip() if discount > 0 and payload.discount_note else None,
+        "discount_type": discount_type if discount > 0 else None,
+        "discount_value": discount_value if discount > 0 else 0,
+        "discount_note": (payload.discount_note or doc.get("discount_note") or "").strip() or None,
         "discount_amount": discount,
+        "coupon_code": coupon_code,
+        "coupon_amount": coupon_amount,
+        "points_redeemed": points_redeemed,
+        "redeem_value_amount": points_value,
         "total": total,
         "payment_method": payload.payment_method,
         "payment_status": "paid",
         "cash_tendered": cash_tendered,
         "change": change,
         "cashier_name": p.name,
+        "paid_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
     }
-    # atomic guard: a concurrent double-pay can never both succeed
-    res = await db.orders.update_one({"id": id, "payment_status": "pending"}, {"$set": changes})
+    # Customer self-checkout payment is itself the confirmation. Immediate pickup orders
+    # become ready for handoff; scheduled orders remain confirmed/preparing until due.
+    if doc.get("status") in ("received", "confirmed", "preparing"):
+        changes["status"] = "confirmed" if doc.get("fulfillment") == "scheduled" else "ready"
+    # Reserve external side effects before the atomic payment transition; if a concurrent
+    # pay wins the race, release coupon/point reservations immediately.
+    if coupon_id_to_reserve:
+        try:
+            await reserve_coupon(coupon_id_to_reserve, id, doc.get("customer_phone"))
+        except CouponError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if points_to_redeem:
+        try:
+            await redeem_points(doc.get("customer_phone"), doc.get("store_id"), points_to_redeem, id)
+        except ValueError as exc:
+            if coupon_id_to_reserve:
+                await release_coupon(coupon_id_to_reserve, id)
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Atomic guard. Accept any not-yet-paid representation (`pending`, missing, or null)
+    # because older/customer rows may not have normalized `payment_status` yet.
+    res = await db.orders.update_one({"id": id, "payment_status": {"$ne": "paid"}}, {"$set": changes})
     if not res.matched_count:
+        if coupon_id_to_reserve:
+            await release_coupon(coupon_id_to_reserve, id)
+        if points_to_redeem:
+            await refund_redeem(doc.get("customer_phone"), doc.get("store_id"), points_to_redeem, id)
         raise HTTPException(status_code=409, detail="Pesanan ini sudah dibayar")
-    await audit("order.pay", p, store_id=doc.get("store_id"), detail={"order_id": id, "order_no": doc.get("order_no"), "total": total, "method": payload.payment_method})
-    # P5: award loyalty points exactly once (ledger uniqueness makes this idempotent)
-    from lib.customers import award_points
-    await award_points({**doc, **changes}, actor=p)
+    # Payment is authoritative once the conditional update succeeds. Post-payment side
+    # effects must not turn a successful payment into a 500 and cause cashier retries.
+    try:
+        await audit("order.pay", p, store_id=doc.get("store_id"), detail={"order_id": id, "order_no": doc.get("order_no"), "total": total, "method": payload.payment_method})
+        # P5: award loyalty points exactly once (ledger uniqueness makes this idempotent)
+        from lib.customers import award_points
+        await award_points({**doc, **changes}, actor=p)
+    except Exception:
+        pass
     return _to_order({**doc, **changes})
+
+
+@router.post("/orders/{id}/ready", response_model=Order)
+async def mark_order_ready(id: str, p: Principal = Depends(get_principal)):
+    """One cashier action: move an eligible paid customer order directly to ready."""
+    doc = await db.orders.find_one({"id": id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Order not found")
+    sid = await resolve_store(p, doc.get("store_id"))
+    if doc.get("voided") or doc.get("status") in (CANCELLED, COMPLETED):
+        raise HTTPException(status_code=409, detail="Pesanan sudah selesai/dibatalkan")
+    if doc.get("payment_status") != "paid":
+        raise HTTPException(status_code=409, detail="Pesanan belum lunas")
+    if doc.get("status") == "ready":
+        return _to_order(doc)
+    if doc.get("status") not in ("received", "confirmed", "preparing"):
+        raise HTTPException(status_code=409, detail="Status pesanan tidak bisa ditandai siap")
+    now = datetime.now(timezone.utc)
+    res = await db.orders.update_one(
+        {"id": id, "status": {"$in": ["received", "confirmed", "preparing"]}},
+        {"$set": {"status": "ready", "updated_at": now}},
+    )
+    if not res.matched_count:
+        raise HTTPException(status_code=409, detail="Status pesanan berubah, coba muat ulang")
+    await audit("order.ready", p, store_id=sid, detail={"order_id": id, "order_no": doc.get("order_no")})
+    fresh = await db.orders.find_one({"id": id}, {"_id": 0})
+    return _to_order(fresh)
 
 
 @router.post("/orders/{id}/cancel", response_model=Order)

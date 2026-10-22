@@ -23,6 +23,17 @@ export const fmtDateTime = (iso: string) =>
 export const fmtTime = (iso: string) =>
   new Intl.DateTimeFormat("id-ID", { timeZone: STORE_TZ, hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 
+export const fmtLongDateTimeWIB = (iso: string) =>
+  new Intl.DateTimeFormat("id-ID", {
+    timeZone: STORE_TZ,
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(iso));
+
 export const fmtLongDate = (ymd: string) =>
   new Intl.DateTimeFormat("id-ID", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(
     new Date(`${ymd}T00:00:00Z`),

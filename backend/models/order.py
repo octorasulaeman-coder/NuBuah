@@ -59,6 +59,8 @@ class OrderPayIn(BaseModel):
     discount_value: int = Field(default=0, ge=0, le=100_000_000)
     discount_note: Optional[str] = Field(default=None, max_length=60)
     approval_pin: Optional[str] = Field(default=None, min_length=4, max_length=6, pattern=r"^\d+$")
+    coupon_code: Optional[str] = Field(default=None, max_length=30)
+    redeem_points: int = Field(default=0, ge=0, le=1_000_000)
 
 
 class PublicOrderStatus(BaseModel):
@@ -134,6 +136,7 @@ class Order(BaseModel):
     # Scheduling + preparation flow (P2). status is preparation flow, independent of payment.
     fulfillment: str = "immediate"  # "immediate" | "scheduled"
     scheduled_for: Optional[datetime] = None  # UTC slot start; null = immediate
+    pay_at_pickup: bool = False  # scheduled order whose payment is collected at pickup
     status: str = "received"  # received|confirmed|preparing|ready|completed|cancelled (lib/orderflow.py)
     cash_tendered: Optional[int] = None
     change: Optional[int] = None

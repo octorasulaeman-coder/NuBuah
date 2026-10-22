@@ -5,7 +5,7 @@ import { Clock, Minus, Plus, ShoppingBag, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { apiGet, ApiError, apiPost } from "@/lib/api";
 import { useMenu } from "@/lib/useMenu";
-import { rupiah } from "@/lib/format";
+import { rupiah, fmtLongDateTimeWIB } from "@/lib/format";
 import { downloadReceiptImage } from "@/lib/receiptImage";
 import { cn } from "@/lib/utils";
 import type { OrderLine, OrderLineIn, PaymentAttemptPublic, PaymentsConfig, PublicOrderStatus, PublicStoreInfo } from "@/lib/types";
@@ -217,7 +217,7 @@ export default function PublicMenu() {
               <div className="mt-3 rounded-xl bg-teal-deep px-4 py-3 text-white" data-testid="public-order-pickup">
                 <p className="text-xs text-white/70">Jadwal ambil</p>
                 <p className="font-heading text-lg font-extrabold">
-                  {new Date(live.scheduled_for).toLocaleString("id-ID", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" })}
+                  {fmtLongDateTimeWIB(live.scheduled_for)}
                 </p>
               </div>
             )}
