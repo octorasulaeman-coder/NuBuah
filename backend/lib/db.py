@@ -1,12 +1,11 @@
 """MongoDB access (P3 + refund ledger).
 
-The connection is created once at import time from MONGO_URL / DB_NAME. ``DB_NAME`` is
-the canonical application database setting; ``MONGO_DB_NAME`` is accepted as a legacy
-alias. All indexes the application relies on are declared in COLLECTION_INDEXES and
-created by ensure_indexes() at startup. The refund ledger has unique constraints that
-make refund retries and partial-refund accounting safe under concurrency; production
-deploys should run scripts/migrate_payment_hardening.py to confirm these indexes exist
-before serving traffic.
+The connection is created once at import time from MONGO_URL / DB_NAME. All indexes the
+application relies on are declared in COLLECTION_INDEXES and created by ensure_indexes()
+at startup. The refund ledger has unique constraints that make refund retries and
+partial-refund accounting safe under concurrency; production deploys should run
+scripts/migrate_payment_hardening.py to confirm these indexes exist before serving
+traffic.
 """
 
 import os
@@ -15,7 +14,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ASCENDING, IndexModel
 
 MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017/nubuah")
-DB_NAME = os.environ.get("DB_NAME") or os.environ.get("MONGO_DB_NAME") or "nubuah"
+DB_NAME = os.environ.get("MONGO_DB_NAME", "nubuah")
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
